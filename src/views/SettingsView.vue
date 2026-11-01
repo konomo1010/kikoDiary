@@ -287,7 +287,7 @@ async function cleanEmptyDirs() {
       <div v-if="updateState.installing" class="update-progress">
         <div class="update-progress-bar" :style="{ width: updateState.percent + '%' }"></div>
       </div>
-      <p v-if="updateState.installing" class="update-hint">正在下载更新，完成后程序会自动退出，请重新打开 kiko。</p>
+      <p v-if="updateState.installing" class="update-hint">正在下载更新，完成后程序会自动重启。</p>
     </div>
 
   </section>

@@ -591,7 +591,7 @@ function promptInstallUpdate() {
   }
   openModal({
     title: `更新到 v${updateState.version}`,
-    body: '将下载新版本并自动安装。\n安装阶段程序会自动退出，完成后请重新打开 kiko。',
+    body: '将下载新版本并自动安装。\n安装完成后程序会自动重启。',
     confirmText: '立即更新',
     onConfirm: installUpdateFlow
   })
