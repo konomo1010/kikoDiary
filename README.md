@@ -56,6 +56,37 @@ npm run tauri:build
 > - `build` 脚本会把 `TEMP`/`TMP` 重定向到项目内的 `.tmp` 目录，避免部分环境下 esbuild 无法删除系统临时文件导致构建失败。
 > - 首次打包 NSIS 需要从 GitHub 下载 `nsis-3.13` 与 `nsis_tauri_utils`，网络受限时可能超时。可先手动下载并解压到 `%LOCALAPPDATA%\tauri\NSIS` 后再构建。
 
+## 自动更新
+
+应用内置基于 `tauri-plugin-updater` 的自动更新，更新源为 GitHub Releases 上的 `latest.json`。
+
+- **启动时检查更新**：默认**关闭**，可在「设置 → 关于」中开启
+- **手动检查**：「设置 → 关于 → 检查更新」
+- 发现新版本后点「下载并安装」，安装阶段程序会自动退出，重新打开即为新版本
+- 正在编辑日记时**不允许**直接安装更新（安装会退出进程，而本项目保存是手动的，未保存内容会丢失）
+
+> ⚠️ **签名私钥**
+> 更新包必须签名，公钥写在 `tauri.conf.json` 的 `plugins.updater.pubkey`（可公开）。
+> 私钥默认位于 `~/.tauri/kiko.key`，**必须离线备份**：私钥一旦丢失，已安装的用户将永远收不到更新。
+> 私钥绝不能提交到仓库。
+
+### 发布新版本
+
+```bash
+# 1. 先提交所有改动（脚本要求工作区干净）
+# 2. 指定签名私钥
+$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\kiko.key"
+# 3. 一键构建 + 打标签 + 上传
+npm run release -- 1.1.0 --notes .tmp/notes.md
+```
+
+脚本会依次：同步三处版本号（`package.json` / `tauri.conf.json` / `Cargo.toml`）→ 构建带签名的安装包 →
+生成 `latest.json` → 提交版本号并打标签 → 推送 → 上传 GitHub Release。
+
+常用参数：`--dry-run` 只构建并打印 `latest.json`；`--skip-build` 复用已有构建产物。
+
+> GitHub CLI 未登录时脚本会尝试从 `git credential` 读取令牌；也可直接设置 `GH_TOKEN`。
+
 ## 数据存储
 
 ### 数据目录

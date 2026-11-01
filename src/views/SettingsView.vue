@@ -2,13 +2,33 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   state, userAvatarChar, load,
-  setTheme, setShowListExcerpt,
+  setTheme, setShowListExcerpt, setCheckUpdatesOnStartup,
   setUserName, setUserAvatar, exportData, importData,
-  openModal, toast
+  openModal, toast,
+  updateState, checkUpdate, promptInstallUpdate
 } from '../store'
 import * as dbApi from '../api'
 import Icon from '../components/Icon.vue'
 import { open } from '@tauri-apps/plugin-dialog'
+import { currentVersion } from '../updater'
+
+// ---------- 软件更新 ----------
+const version = ref('')
+const updateMsg = ref('')
+
+async function onCheckUpdate() {
+  if (updateState.status === 'checking' || updateState.installing) return
+  updateMsg.value = ''
+  const status = await checkUpdate()
+  if (status === 'available') {
+    toast(`发现新版本 v${updateState.version}`, 'success')
+  } else if (status === 'none') {
+    updateMsg.value = version.value ? `已是最新版本（v${version.value}）` : '已是最新版本'
+  } else {
+    updateMsg.value = '检查失败，请确认网络后重试'
+    toast('检查更新失败', 'danger')
+  }
+}
 
 // 数据导入 / 导出
 
@@ -44,6 +64,7 @@ onMounted(async () => {
   } catch (e) {
     console.error('[settings] get data dir failed', e)
   }
+  version.value = await currentVersion()
 })
 
 async function applyDataDir(path, mode = 'migrate') {
@@ -227,6 +248,46 @@ async function cleanEmptyDirs() {
         <div class="info"><b>清理空目录</b><span>扫描数据目录中的空文件夹，确认后清理</span></div>
         <button class="btn btn-ghost" @click="cleanEmptyDirs"><Icon name="trash" /> 清理</button>
       </div>
+    </div>
+
+    <div class="settings-group">
+      <h3>关于</h3>
+      <p class="desc">版本信息与软件更新。</p>
+      <div class="setting-row">
+        <div class="info"><b>当前版本</b><span>{{ version || '未知' }}</span></div>
+      </div>
+      <div class="setting-row">
+        <div class="info">
+          <b>启动时检查更新</b>
+          <span>开启后每次启动会连接 GitHub 检查新版本（默认关闭）</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" :checked="state.settings.checkUpdatesOnStartup" @change="setCheckUpdatesOnStartup($event.target.checked)">
+          <span class="track"></span>
+        </label>
+      </div>
+      <div class="setting-row">
+        <div class="info">
+          <b>软件更新</b>
+          <span>{{ updateMsg || '手动检查是否有新版本' }}</span>
+        </div>
+        <button class="btn btn-ghost" :disabled="updateState.status === 'checking' || updateState.installing" @click="onCheckUpdate">
+          <Icon name="check" /> {{ updateState.status === 'checking' ? '检查中…' : '检查更新' }}
+        </button>
+      </div>
+      <div v-if="updateState.status === 'available'" class="setting-row">
+        <div class="info">
+          <b>可更新到 v{{ updateState.version }}</b>
+          <span>当前 v{{ updateState.currentVersion || version }} → v{{ updateState.version }}</span>
+        </div>
+        <button class="btn btn-primary" :disabled="updateState.installing" @click="promptInstallUpdate">
+          <Icon name="download" /> {{ updateState.installing ? `下载中 ${updateState.percent}%` : '下载并安装' }}
+        </button>
+      </div>
+      <div v-if="updateState.installing" class="update-progress">
+        <div class="update-progress-bar" :style="{ width: updateState.percent + '%' }"></div>
+      </div>
+      <p v-if="updateState.installing" class="update-hint">正在下载更新，完成后程序会自动退出，请重新打开 kiko。</p>
     </div>
 
   </section>

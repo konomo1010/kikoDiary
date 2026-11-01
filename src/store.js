@@ -3,8 +3,15 @@ import { save } from '@tauri-apps/plugin-dialog'
 import * as dbApi from './api'
 import { SEED_DIARIES, SEED_TAGS } from './data/seed'
 import { todayStr, normalizeContent, docToText } from './utils/helpers'
+import { checkForUpdate, closeUpdate, installUpdate as runInstallUpdate } from './updater'
 
-const DEFAULT_SETTINGS = { theme: 'light', fontSize: 16, showListExcerpt: true }
+const DEFAULT_SETTINGS = {
+  theme: 'light',
+  fontSize: 16,
+  showListExcerpt: true,
+  // 启动时检查更新：默认关闭，可在「设置 → 关于」中开启
+  checkUpdatesOnStartup: false
+}
 const DEFAULT_USER = { name: 'Kiko User', avatar: '' }
 
 const state = reactive({
@@ -499,6 +506,97 @@ function setShowListExcerpt(v) {
   toast(v ? '已显示列表内容摘要' : '已隐藏列表内容摘要', 'success')
 }
 
+function setCheckUpdatesOnStartup(v) {
+  state.settings.checkUpdatesOnStartup = !!v
+  persist()
+  toast(v ? '已开启启动时检查更新' : '已关闭启动时检查更新', 'success')
+}
+
+/* ================= Update ================= */
+// 侧栏角标与设置页共用这一份状态
+const updateState = reactive({
+  status: 'idle', // idle | checking | available | none | error
+  version: '',
+  currentVersion: '',
+  notes: '',
+  installing: false,
+  percent: 0,
+  error: '',
+  handle: null
+})
+
+/**
+ * 检查更新。返回最终状态字符串。
+ * 任何情况下都不抛异常 —— 断网、GitHub 不可达都只是 status === 'error'。
+ */
+async function checkUpdate() {
+  if (updateState.status === 'checking' || updateState.installing) return updateState.status
+  updateState.status = 'checking'
+  updateState.error = ''
+  if (updateState.handle) {
+    closeUpdate(updateState.handle)
+    updateState.handle = null
+  }
+
+  const res = await checkForUpdate()
+  if (res.status === 'available') {
+    updateState.status = 'available'
+    updateState.handle = res.update
+    updateState.version = res.info.version
+    updateState.currentVersion = res.info.currentVersion
+    updateState.notes = res.info.notes || ''
+  } else if (res.status === 'none') {
+    updateState.status = 'none'
+  } else {
+    updateState.status = 'error'
+    updateState.error = res.message || ''
+  }
+  return updateState.status
+}
+
+/** 真正下载并安装。成功返回 true；Windows 上通常会随进程退出而中断。 */
+async function installUpdateFlow() {
+  if (!updateState.handle || updateState.installing) return false
+  updateState.installing = true
+  updateState.percent = 0
+  try {
+    await runInstallUpdate(updateState.handle, (p) => {
+      updateState.percent = p.percent
+    })
+  } catch (e) {
+    console.error('[store] install update failed', e)
+    updateState.installing = false
+    updateState.status = 'error'
+    toast('更新安装失败，请重试', 'danger')
+    return false
+  }
+  updateState.installing = false
+  toast('更新已安装，请重新打开 kiko', 'success')
+  return true
+}
+
+/**
+ * 安装前的统一入口：编辑器里禁止直接装（本项目保存是手动的，
+ * 而 Windows 安装更新会强制退出程序），其余情况弹确认框。
+ */
+function promptInstallUpdate() {
+  if (updateState.status !== 'available' || updateState.installing) return
+  if (state.view === 'editor') {
+    openModal({
+      title: '请先保存日记',
+      body: '安装更新会退出程序，未保存的编辑内容会丢失。\n请先保存当前日记，再安装更新。',
+      confirmText: '知道了'
+    })
+    return
+  }
+  openModal({
+    title: `更新到 v${updateState.version}`,
+    body: '将下载新版本并自动安装。\n安装阶段程序会自动退出，完成后请重新打开 kiko。',
+    confirmText: '立即更新',
+    onConfirm: installUpdateFlow
+  })
+}
+
 function applyTheme() {
   document.documentElement.setAttribute('data-theme', state.settings.theme)
 }
@@ -642,6 +740,22 @@ async function init() {
   applyTheme()
   document.documentElement.style.fontSize = state.settings.fontSize + 'px'
   showView('home')
+  scheduleStartupUpdateCheck()
+}
+
+/**
+ * 启动后延迟静默检查更新。默认关闭（settings.checkUpdatesOnStartup）。
+ * 任何失败都静默处理，绝不打断启动或写作。
+ */
+function scheduleStartupUpdateCheck() {
+  if (!state.settings.checkUpdatesOnStartup) return
+  setTimeout(async () => {
+    // 正在编辑器里写作时不打扰
+    if (state.view === 'editor') return
+    const status = await checkUpdate()
+    // 状态留在 updateState 里，侧栏角标会自动出现
+    if (status === 'available') toast(`发现新版本 v${updateState.version}`, 'success')
+  }, 3000)
 }
 
 /* ================= Sidebar ================= */
@@ -673,7 +787,9 @@ export {
   // search / filter
   filterByTag,
   // settings
-  setTheme, setShowListExcerpt,
+  setTheme, setShowListExcerpt, setCheckUpdatesOnStartup,
+  // update
+  updateState, checkUpdate, installUpdateFlow, promptInstallUpdate,
   applyTheme, editorDark, toggleEditorDark,
   setUserName, setUserAvatar, exportData, importData,
   // modal
