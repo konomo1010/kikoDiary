@@ -20,8 +20,10 @@ import { homedir } from 'node:os'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const pkgPath = join(ROOT, 'package.json')
+const pkgLockPath = join(ROOT, 'package-lock.json')
 const confPath = join(ROOT, 'src-tauri', 'tauri.conf.json')
 const cargoPath = join(ROOT, 'src-tauri', 'Cargo.toml')
+const cargoLockPath = join(ROOT, 'src-tauri', 'Cargo.lock')
 const nsisDir = join(ROOT, 'src-tauri', 'target', 'release', 'bundle', 'nsis')
 const rel = (p) => p.slice(ROOT.length + 1)
 
@@ -159,7 +161,7 @@ if (dryRun) {
 
 // ---------- 7. 提交版本号 + 打标签 ----------
 console.log(`\n▶ 提交版本号并打标签 ${tag}`)
-run('git', ['add', rel(pkgPath), rel(confPath), rel(cargoPath)])
+run('git', ['add', rel(pkgPath), rel(pkgLockPath), rel(confPath), rel(cargoPath), rel(cargoLockPath)])
 run('git', ['commit', '-m', `chore: release ${tag}`])
 run('git', ['tag', '-a', tag, '-m', `kiko ${tag}`])
 
