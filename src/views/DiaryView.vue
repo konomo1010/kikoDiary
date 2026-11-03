@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { state, newDiary, editDiary, computeStats, tagCount } from '../store'
 import * as dbApi from '../api'
 import { fmtDate } from '../utils/helpers'
+import { sortBy, sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
 
 /* ---- search (backend full-text) ---- */
@@ -96,23 +97,6 @@ function onDocClick(e) {
   if (tagPanelOpen.value && tagFilterRef.value && !tagFilterRef.value.contains(e.target)) {
     cancelTagPanel()
   }
-}
-
-const sortBy = ref('time-desc')
-
-function sortDiaries(arr) {
-  const a = [...arr]
-  const asc = sortBy.value === 'time-asc'
-  return a.sort((x, y) => {
-    // 先按日期（date）字典序排序
-    if (x.date !== y.date) {
-      const d = x.date < y.date ? -1 : 1
-      return asc ? d : -d
-    }
-    // 同一天再按创建时间戳（dirName）排序
-    const t = (Number(x.dirName) || 0) - (Number(y.dirName) || 0)
-    return asc ? t : -t
-  })
 }
 
 const list = computed(() => {

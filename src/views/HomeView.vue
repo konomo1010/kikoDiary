@@ -6,6 +6,7 @@ import {
   calSelect, newDiary, editDiary
 } from '../store'
 import { greeting, fmtDate, todayStr, toDateStr } from '../utils/helpers'
+import { sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
 
 if (!state.calSelected) state.calSelected = todayStr()
@@ -45,7 +46,8 @@ const cells = computed(() => {
 const selectedEntries = computed(() => {
   const byDate = {}
   state.diaries.forEach((d) => { (byDate[d.date] = byDate[d.date] || []).push(d) })
-  return (byDate[state.calSelected] || []).slice().sort((a, b) => b.date.localeCompare(a.date))
+  // 与日记页保持同一套排序（日期 + 创建时间戳）
+  return sortDiaries(byDate[state.calSelected] || [])
 })
 
 const decadeYears = computed(() => Array.from({ length: 12 }, (_, i) => state.calPickerDecade + i))

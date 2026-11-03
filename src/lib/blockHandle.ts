@@ -1,6 +1,8 @@
 import { createApp } from 'vue'
 import { offset } from '@floating-ui/dom'
 import { DragHandle } from '@tiptap/extension-drag-handle'
+import type { Node as PMNode } from '@tiptap/pm/model'
+import type { Editor } from '@tiptap/core'
 import { blockHandleState } from './blockHandleState'
 import BlockHandle from '../components/BlockHandle.vue'
 
@@ -30,8 +32,10 @@ export const BlockHandleExtension = DragHandle.configure({
       }),
     ],
   },
-  onNodeChange: ({ node, editor }) => {
-    blockHandleState.node = node
-    blockHandleState.editor = editor
-  },
+  onNodeChange: ((data: { node: PMNode | null; editor: Editor; pos?: number }) => {
+    if (!data.node || data.pos == null) return
+    blockHandleState.node = data.node
+    blockHandleState.editor = data.editor
+    blockHandleState.pos = data.pos
+  }) as any,
 })

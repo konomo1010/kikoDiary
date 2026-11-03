@@ -28,11 +28,15 @@ function updateToc() {
   headings.value = result
 }
 
+function onTransaction({ transaction }: { transaction: { docChanged: boolean } }) {
+  if (transaction.docChanged) updateToc()
+}
+
 watch(
   () => editor?.value,
   (next, prev) => {
-    prev?.off('update', updateToc)
-    next?.on('update', updateToc)
+    prev?.off('transaction', onTransaction)
+    next?.on('transaction', onTransaction)
     updateToc()
   },
   { immediate: true }
