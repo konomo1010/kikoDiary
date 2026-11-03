@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "set TEMP=%CD%\\.tmp&& set TMP=%CD%\\.tmp&& tauri dev",
-    "tauri:build": "set TEMP=%CD%\\.tmp&& set TMP=%CD%\\.tmp&& tauri build",
+    "tauri:build": "node scripts/tauri-build.mjs",
     "release": "node scripts/release.mjs"
   },
   "dependencies": {
