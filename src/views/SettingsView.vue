@@ -288,6 +288,7 @@ async function cleanEmptyDirs() {
         <div class="update-progress-bar" :style="{ width: updateState.percent + '%' }"></div>
       </div>
       <p v-if="updateState.installing" class="update-hint">正在下载更新，完成后程序会自动重启。</p>
+      <p v-if="updateState.error" class="update-hint update-error">更新失败：{{ updateState.error }}</p>
     </div>
 
   </section>

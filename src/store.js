@@ -559,12 +559,15 @@ async function installUpdateFlow() {
   if (!updateState.handle || updateState.installing) return false
   updateState.installing = true
   updateState.percent = 0
+  updateState.error = ''
   try {
     await runInstallUpdate(updateState.handle, (p) => {
       updateState.percent = p.percent
     })
   } catch (e) {
     console.error('[store] install update failed', e)
+    // 把真实原因暴露到界面上，否则只看到一句「请重试」无法排查
+    updateState.error = String(e?.message || e || '未知错误')
     updateState.installing = false
     updateState.status = 'error'
     toast('更新安装失败，请重试', 'danger')

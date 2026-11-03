@@ -1,6 +1,9 @@
 import { check } from '@tauri-apps/plugin-updater'
 import { getVersion } from '@tauri-apps/api/app'
 
+/** 下载安装包的超时（毫秒）。慢速网络下 3.4MB 可能要好几分钟。 */
+const DOWNLOAD_TIMEOUT_MS = 15 * 60 * 1000
+
 /** 当前应用版本号。取不到时返回空串，不抛异常。 */
 export async function currentVersion() {
   try {
@@ -77,6 +80,9 @@ export async function installUpdate(update, onProgress = () => {}) {
       default:
         break
     }
+  }, {
+    // GitHub 资产 CDN 在部分网络下只有几十 KB/s，默认值容易超时
+    timeout: DOWNLOAD_TIMEOUT_MS,
   })
 
   onProgress({ phase: 'installing', downloaded, total, percent: 100 })
