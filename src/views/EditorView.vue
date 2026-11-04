@@ -1,6 +1,6 @@
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { state, saveDiary, deleteDiary, backFromEditor, toggleTag, openTagModal, editorDark } from '../store'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { state, saveDiary, deleteDiary, backFromEditor, toggleTag, openTagModal, openModal, editorDark } from '../store'
 import * as dbApi from '../api'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { todayStr, fmtDate, countWords, normalizeContent, toDateStr } from '../utils/helpers'
@@ -13,6 +13,7 @@ const currentDiary = computed(() => isNew.value ? null : state.diaries.find((x) 
 const title = ref('')
 const content = ref(null)
 const titleInputEl = ref(null)
+const initialSnapshot = ref(null)
 
 function resolveImageSrc(doc) {
   const walk = (node) => {
@@ -52,6 +53,21 @@ const initialDate = isNew.value
   ? (state.newDiaryDate || todayStr())
   : (currentDiary.value ? currentDiary.value.date : todayStr())
 const dateValue = ref(initialDate)
+
+function diarySnapshot() {
+  return JSON.stringify({
+    title: state.hasTitle ? title.value.trim() : '',
+    content: content.value,
+    date: dateValue.value,
+    tags: [...state.activeTags].sort(),
+    hasTitle: state.hasTitle
+  })
+}
+
+function hasUnsavedChanges() {
+  return initialSnapshot.value !== null && diarySnapshot() !== initialSnapshot.value
+}
+
 const pickerOpen = ref(false)
 const pickerAnchor = ref(new Date(initialDate + 'T00:00:00'))
 const datePickerRef = ref(null)
@@ -152,13 +168,28 @@ function onDocClick(e) {
 const dateLabel = computed(() => fmtDate(dateValue.value))
 
 function onSave() {
-  if (isNew.value) {
-    state.newDiaryDate = dateValue.value
-  } else if (currentDiary.value) {
-    currentDiary.value.date = dateValue.value
-  }
-  const result = saveDiary(state.hasTitle ? title.value.trim() : '', content.value)
+  const result = saveDiary(
+    state.hasTitle ? title.value.trim() : '',
+    content.value,
+    dateValue.value
+  )
   if (result === 'title' && titleInputEl.value) titleInputEl.value.focus()
+  return result
+}
+
+function onBack() {
+  if (!hasUnsavedChanges()) {
+    backFromEditor()
+    return
+  }
+  openModal({
+    title: '保存更改？',
+    body: '这篇日记有未保存的更改，是否保存后再返回？',
+    confirmText: '保存',
+    secondaryText: '不保存',
+    onConfirm: onSave,
+    onSecondary: backFromEditor
+  })
 }
 
 function onToggleTitle() {
@@ -169,6 +200,9 @@ function onToggleTitle() {
 
 onMounted(async () => {
   await initEditor()
+  // 等 Tiptap 完成首次内容同步，避免初始化补全被当作未保存修改
+  await nextTick()
+  initialSnapshot.value = diarySnapshot()
   if (isNew.value && state.hasTitle && titleInputEl.value) titleInputEl.value.focus()
   document.addEventListener('click', onDocClick)
 })
@@ -181,7 +215,7 @@ onBeforeUnmount(() => {
 <template>
   <section class="view editor-view">
     <div class="editor-topbar">
-      <button class="btn btn-icon btn-ghost" title="返回" @click="backFromEditor"><Icon name="back" /></button>
+      <button class="btn btn-icon btn-ghost" title="返回" @click="onBack"><Icon name="back" /></button>
       <div class="spacer"></div>
       <button v-if="!isNew" class="btn btn-danger-ghost" @click="deleteDiary(currentDiary.id)"><Icon name="trash" /> 删除</button>
       <button class="btn btn-primary" @click="onSave">保存日记</button>

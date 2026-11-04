@@ -111,7 +111,10 @@ fn is_kiko_data(dir: &Path) -> bool {
         return false;
     }
     if let Ok(cs) = fs::read_to_string(dir.join("config.json")) {
-        if !matches!(serde_json::from_str::<serde_json::Value>(&cs), Ok(serde_json::Value::Object(_))) {
+        if !matches!(
+            serde_json::from_str::<serde_json::Value>(&cs),
+            Ok(serde_json::Value::Object(_))
+        ) {
             return false;
         }
     }
@@ -146,7 +149,11 @@ impl Db {
         let mut parts = date.split('-');
         let year = parts.next().unwrap_or("0000");
         let month = parts.next().unwrap_or("00");
-        self.root().join("diaries").join(year).join(month).join(date)
+        self.root()
+            .join("diaries")
+            .join(year)
+            .join(month)
+            .join(date)
     }
 
     fn diary_dir(&self, date: &str, dir_name: &str) -> PathBuf {
@@ -154,12 +161,21 @@ impl Db {
     }
 
     fn diary_json_path(&self, date: &str, dir_name: &str) -> PathBuf {
-        self.diary_dir(date, dir_name).join(format!("{}.json", dir_name))
+        self.diary_dir(date, dir_name)
+            .join(format!("{}.json", dir_name))
     }
 
     fn read_meta(&self) -> Vec<DiaryMeta> {
         let s = fs::read_to_string(self.meta_path()).unwrap_or_default();
         serde_json::from_str(&s).unwrap_or_default()
+    }
+
+    fn read_meta_if_initialized(&self) -> Option<Vec<DiaryMeta>> {
+        if self.meta_path().exists() {
+            Some(self.read_meta())
+        } else {
+            None
+        }
     }
 
     fn write_meta(&self, list: &[DiaryMeta]) -> Result<(), String> {
@@ -179,10 +195,7 @@ impl Db {
 }
 
 /// 递归把 content 里 image 节点的 src（临时名）替换成磁盘绝对路径
-fn replace_image_src(
-    node: &mut serde_json::Value,
-    replacements: &HashMap<String, String>,
-) {
+fn replace_image_src(node: &mut serde_json::Value, replacements: &HashMap<String, String>) {
     if let Some(obj) = node.as_object_mut() {
         if let Some(attrs) = obj.get_mut("attrs").and_then(|a| a.as_object_mut()) {
             if let Some(src) = attrs.get("src").and_then(|s| s.as_str()) {
@@ -202,9 +215,30 @@ fn replace_image_src(
     }
 }
 
+/// 日记目录随日期移动后，同步更新正文中已有图片的绝对路径。
+fn rebase_image_src(node: &mut serde_json::Value, old_dir: &Path, new_dir: &Path) {
+    if let Some(obj) = node.as_object_mut() {
+        if obj.get("type").and_then(|t| t.as_str()) == Some("image") {
+            if let Some(attrs) = obj.get_mut("attrs").and_then(|a| a.as_object_mut()) {
+                if let Some(src) = attrs.get("src").and_then(|s| s.as_str()) {
+                    if let Ok(relative) = Path::new(src).strip_prefix(old_dir) {
+                        let new_src = new_dir.join(relative).to_string_lossy().to_string();
+                        attrs.insert("src".to_string(), serde_json::Value::String(new_src));
+                    }
+                }
+            }
+        }
+        if let Some(children) = obj.get_mut("content").and_then(|c| c.as_array_mut()) {
+            for child in children {
+                rebase_image_src(child, old_dir, new_dir);
+            }
+        }
+    }
+}
+
 #[tauri::command]
-pub fn load_meta(state: State<'_, Db>) -> Result<Vec<DiaryMeta>, String> {
-    Ok(state.read_meta())
+pub fn load_meta(state: State<'_, Db>) -> Result<Option<Vec<DiaryMeta>>, String> {
+    Ok(state.read_meta_if_initialized())
 }
 
 #[tauri::command]
@@ -246,12 +280,13 @@ pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, S
     let diary_dir = date_dir.join(&dir_name);
 
     // 编辑且日期变化：把整个日记目录移动到新日期目录
-    if let Some(old_date) = old_date {
-        if old_date != diary.date {
-            let old_diary_dir = state.date_dir(&old_date).join(&dir_name);
-            if old_diary_dir.exists() && !diary_dir.exists() {
-                let _ = fs::rename(&old_diary_dir, &diary_dir);
-            }
+    let old_diary_dir = match old_date.as_ref() {
+        Some(old_date) if old_date != &diary.date => Some(state.diary_dir(old_date, &dir_name)),
+        _ => None,
+    };
+    if let Some(old_diary_dir) = &old_diary_dir {
+        if old_diary_dir.exists() && !diary_dir.exists() {
+            let _ = fs::rename(old_diary_dir, &diary_dir);
         }
     }
     fs::create_dir_all(&diary_dir).map_err(|e| e.to_string())?;
@@ -290,6 +325,9 @@ pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, S
     // 正文里的图片 src 换成磁盘绝对路径
     let mut content = diary.content;
     replace_image_src(&mut content, &replacements);
+    if let Some(old_diary_dir) = &old_diary_dir {
+        rebase_image_src(&mut content, old_diary_dir, &diary_dir);
+    }
 
     let body_json = serde_json::to_string(&content).map_err(|e| e.to_string())?;
     fs::write(diary_dir.join(format!("{}.json", dir_name)), body_json)
@@ -629,4 +667,82 @@ pub fn write_text_file(path: String, content: String) -> Result<(), String> {
         }
     }
     fs::write(&p, content).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{now_ms, rebase_image_src, Db};
+    use serde_json::json;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::Mutex;
+
+    #[test]
+    fn rebase_image_src_after_date_change_preserves_relative_paths() {
+        let old_dir = PathBuf::from("data")
+            .join("diaries/2026/10/2026-10-01")
+            .join("123");
+        let new_dir = PathBuf::from("data")
+            .join("diaries/2026/11/2026-11-04")
+            .join("123");
+        let old_src = old_dir.join("imageFiles_123/123_hash.png");
+        let external_src = PathBuf::from("other/image.png");
+        let mut content = json!({
+            "type": "doc",
+            "content": [
+                {
+                    "type": "blockquote",
+                    "content": [{
+                        "type": "image",
+                        "attrs": { "src": old_src.to_string_lossy() }
+                    }]
+                },
+                {
+                    "type": "image",
+                    "attrs": { "src": external_src.to_string_lossy() }
+                }
+            ]
+        });
+
+        rebase_image_src(&mut content, &old_dir, &new_dir);
+
+        let expected = new_dir.join("imageFiles_123/123_hash.png");
+        assert_eq!(
+            content
+                .pointer("/content/0/content/0/attrs/src")
+                .and_then(|v| v.as_str()),
+            expected.to_str()
+        );
+        assert_eq!(
+            content
+                .pointer("/content/1/attrs/src")
+                .and_then(|v| v.as_str()),
+            external_src.to_str()
+        );
+    }
+
+    #[test]
+    fn load_meta_distinguishes_missing_file_from_empty_list() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(format!(
+                "kiko-meta-test-{}-{}",
+                std::process::id(),
+                now_ms()
+            ));
+        fs::create_dir_all(&root).unwrap();
+        let db = Db {
+            dir: Mutex::new(root.clone()),
+        };
+
+        assert!(db.read_meta_if_initialized().is_none());
+
+        db.write_meta(&[]).unwrap();
+        let meta = db
+            .read_meta_if_initialized()
+            .expect("an existing empty meta.json means initialized");
+        assert!(meta.is_empty());
+
+        fs::remove_dir_all(root).unwrap();
+    }
 }

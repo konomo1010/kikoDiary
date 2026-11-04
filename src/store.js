@@ -43,13 +43,15 @@ const modal = reactive({
   body: '',
   confirmText: '确定',
   danger: false,
+  secondaryText: '',
   input: false,
   inputPlaceholder: '标签名',
   inputValue: '',
   list: [],
   listMore: 0,
   onConfirm: null,
-  onCancel: null
+  onCancel: null,
+  onSecondary: null
 })
 
 // ----- Tag modal -----
@@ -140,8 +142,8 @@ async function collectImages(content) {
 async function load() {
   try {
     let meta = await dbApi.loadMeta()
-    if (!meta || meta.length === 0) {
-      // 首次启动：把内置示例写入 redb
+    if (meta == null) {
+      // 仅首次初始化（meta.json 不存在）时写入示例；空数组表示用户已删除全部日记
       for (const s of SEED_DIARIES) {
         const content = normalizeContent(s.content)
         await dbApi.saveDiary({
@@ -240,7 +242,7 @@ function editDiary(id) {
 }
 
 // returns: null (saved) | 'title' (needs title focus) | 'tags' (tag modal opened)
-function saveDiary(title, content) {
+function saveDiary(title, content, dateStr) {
   if (state.hasTitle && !title) {
     toast('请先写一个标题，或关闭标题栏', 'danger')
     return 'title'
@@ -253,7 +255,7 @@ function saveDiary(title, content) {
 
   const editingId = state.editingId
   const existing = editingId == null ? null : state.diaries.find((x) => x.id === editingId)
-  const date = state.newDiaryDate || (existing ? existing.date : todayStr())
+  const date = dateStr || state.newDiaryDate || (existing ? existing.date : todayStr())
   const tags = [...state.activeTags]
   const wordCount = countWords(content)
   const excerpt = buildExcerpt(content)
@@ -672,7 +674,7 @@ function importData() {
             excerpt: buildExcerpt(content)
           })
         }
-        state.diaries = await dbApi.loadMeta()
+        state.diaries = (await dbApi.loadMeta()) || []
         if (data && !Array.isArray(data) && Array.isArray(data.tags)) {
           state.tags = data.tags
           persist()
@@ -695,6 +697,7 @@ function openModal(opts) {
   modal.body = opts.body
   modal.confirmText = opts.confirmText || '确定'
   modal.danger = !!opts.danger
+  modal.secondaryText = opts.secondaryText || ''
   modal.input = !!opts.input
   modal.inputPlaceholder = opts.inputPlaceholder || '标签名'
   modal.inputValue = opts.inputValue || ''
@@ -702,6 +705,7 @@ function openModal(opts) {
   modal.listMore = opts.listMore || 0
   modal.onConfirm = opts.onConfirm || null
   modal.onCancel = opts.onCancel || null
+  modal.onSecondary = opts.onSecondary || null
 }
 
 function closeModal() {
@@ -710,10 +714,17 @@ function closeModal() {
   modal.listMore = 0
   modal.onConfirm = null
   modal.onCancel = null
+  modal.onSecondary = null
 }
 
 function cancelModal() {
   const fn = modal.onCancel
+  closeModal()
+  if (fn) fn()
+}
+
+function secondaryModal() {
+  const fn = modal.onSecondary
   closeModal()
   if (fn) fn()
 }
@@ -796,7 +807,7 @@ export {
   applyTheme, editorDark, toggleEditorDark,
   setUserName, setUserAvatar, exportData, importData,
   // modal
-  openModal, closeModal, cancelModal, confirmModal,
+  openModal, closeModal, cancelModal, secondaryModal, confirmModal,
   // toast
   toast,
   // init

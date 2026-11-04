@@ -1,6 +1,6 @@
 <script setup>
 import { ref, watch, nextTick } from 'vue'
-import { modal, closeModal, cancelModal, confirmModal } from '../store'
+import { modal, closeModal, cancelModal, secondaryModal, confirmModal } from '../store'
 
 const inputEl = ref(null)
 
@@ -35,6 +35,9 @@ function onKeydown(e) {
       >
       <div class="modal-actions">
         <button class="btn btn-ghost" @click="cancelModal">取消</button>
+        <button v-if="modal.secondaryText" class="btn btn-ghost" @click="secondaryModal">
+          {{ modal.secondaryText }}
+        </button>
         <button
           class="btn"
           :class="modal.danger ? 'btn-danger' : 'btn-primary'"
