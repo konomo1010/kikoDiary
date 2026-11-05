@@ -1,12 +1,16 @@
 <script setup>
 import { computed } from 'vue'
 import { state, tagModal, closeTagModal, toggleTag, addTagFromModal, tagCount } from '../store'
+import { isUntaggedTag } from '../utils/tags'
 import Icon from './Icon.vue'
+
+/** 「无标签」是系统筛选项，不能挂到日记上，所以不出现在这里的选择列表 */
+const selectableTags = computed(() => state.tags.filter((t) => !isUntaggedTag(t)))
 
 const filteredTags = computed(() => {
   const q = tagModal.search.trim().toLowerCase()
-  if (!q) return state.tags
-  return state.tags.filter((t) => t.toLowerCase().includes(q))
+  if (!q) return selectableTags.value
+  return selectableTags.value.filter((t) => t.toLowerCase().includes(q))
 })
 </script>
 
@@ -20,7 +24,7 @@ const filteredTags = computed(() => {
         <input v-model="tagModal.search" type="text" placeholder="搜索标签…">
       </div>
       <div class="modal-scroll">
-        <div v-if="!state.tags.length" class="tag-modal-empty">
+        <div v-if="!selectableTags.length" class="tag-modal-empty">
           <p>还没有标签</p>
           <button class="btn btn-soft" @click="addTagFromModal('')"><Icon name="plus" /> 新建标签</button>
         </div>

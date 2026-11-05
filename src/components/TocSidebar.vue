@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { injectEditor } from '../composables/useEditor'
+import { tocFits, tocHasItems } from '../composables/useLayout'
 
 interface HeadingItem {
   level: number
@@ -26,6 +27,7 @@ function updateToc() {
     return true
   })
   headings.value = result
+  tocHasItems.value = result.length > 0
 }
 
 function onTransaction({ transaction }: { transaction: { docChanged: boolean } }) {
@@ -42,6 +44,12 @@ watch(
   { immediate: true }
 )
 
+onBeforeUnmount(() => {
+  editor?.value?.off('transaction', onTransaction)
+  // 编辑器卸载时清掉，避免下一篇日记沿用上一份的「有目录」状态
+  tocHasItems.value = false
+})
+
 function goTo(pos: number) {
   const e = editor?.value
   if (!e) return
@@ -55,7 +63,7 @@ function goTo(pos: number) {
 </script>
 
 <template>
-  <aside v-if="headings.length" class="toc-sidebar">
+  <aside v-if="headings.length && tocFits" class="toc-sidebar">
     <div class="toc-sidebar-title">On this page</div>
     <a
       v-for="(h, i) in headings"

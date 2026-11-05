@@ -168,6 +168,23 @@ body {
 .page-title { font-family: var(--font-display); font-size: 26px; font-weight: 750; letter-spacing: -0.02em; margin: 0; line-height: 1.2; }
 .page-sub { color: var(--muted); margin: 6px 0 0; font-size: 14.5px; }
 
+/* ---------- Breadcrumb ---------- */
+.breadcrumb {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 2px;
+  margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--faint);
+  flex: none;
+}
+.breadcrumb-item {
+  max-width: 280px; padding: 2px 6px; border: none; border-radius: 6px;
+  background: transparent; font: inherit; color: var(--muted); cursor: pointer;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: background .15s ease, color .15s ease;
+}
+.breadcrumb-item:hover:not(:disabled) { color: var(--fg); background: var(--surface-2); }
+.breadcrumb-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.breadcrumb-item.current { color: var(--fg); font-weight: 600; cursor: default; padding-right: 2px; }
+.breadcrumb-sep { color: var(--faint); user-select: none; padding: 0 1px; }
+
 .btn {
   display: inline-flex; align-items: center; gap: 8px;
   border: 1px solid transparent; border-radius: 11px;
@@ -368,6 +385,49 @@ body {
 }
 .tag-filter-scroll { max-height: 320px; overflow-y: auto; margin: 0 -4px; padding: 4px; }
 .tag-filter-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+
+/* ---------- 日期区间筛选 ---------- */
+.tag-filter-popover.date-filter-popover { width: 330px; }
+.date-filter-row { display: flex; gap: 10px; }
+.date-filter-row label {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px;
+  font-size: 12px; color: var(--muted);
+}
+.date-filter-row input[type="date"] {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border-strong);
+  border-radius: 9px; background: var(--surface); font-family: inherit;
+  font-size: 13px; color: var(--fg); color-scheme: light;
+}
+[data-theme="dark"] .date-filter-row input[type="date"] { color-scheme: dark; }
+.date-filter-presets { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.date-filter-presets button {
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--muted); font-family: inherit;
+  font-size: 12px; cursor: pointer; transition: color .15s ease, border-color .15s ease;
+}
+.date-filter-presets button:hover { color: var(--fg); border-color: var(--accent); }
+.date-filter-hint { margin: 10px 0 0; font-size: 11.5px; color: var(--faint); line-height: 1.5; }
+
+.filter-summary {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+  margin: -8px 0 18px; padding: 9px 12px;
+  border: 1px dashed var(--border-strong); border-radius: 10px;
+  background: var(--surface-2); font-size: 13px; color: var(--muted);
+}
+.filter-summary-item { display: inline-flex; align-items: center; gap: 6px; color: var(--fg); }
+.filter-summary-item svg { width: 14px; height: 14px; color: var(--faint); flex: none; }
+.filter-summary-chip {
+  padding: 2px 8px; border-radius: 999px; background: var(--accent-soft);
+  color: var(--accent-strong); font-weight: 500;
+}
+.filter-summary-total { color: var(--fg); }
+.filter-summary-total strong { font-weight: 700; }
+.filter-summary-clear {
+  margin-left: auto; padding: 3px 8px; border: none; border-radius: 7px;
+  background: transparent; color: var(--muted); font-family: inherit;
+  font-size: 12.5px; cursor: pointer;
+}
+.filter-summary-clear:hover { background: var(--surface); color: var(--fg); }
 .diary-layout { display: grid; grid-template-columns: 1fr 260px; gap: 22px; align-items: start; }
 .entry-list { display: flex; flex-direction: column; gap: 12px; }
 .load-more-sentinel { padding: 18px; text-align: center; color: var(--faint); font-size: 13px; }
@@ -663,6 +723,12 @@ body {
 .tag-card { padding: 18px 20px; cursor: pointer; transition: box-shadow .16s ease, transform .16s ease; }
 .tag-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
 .tag-card .tname { font-size: 16.5px; font-weight: 650; margin: 0; }
+.tag-sys-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 7px;
+  font-size: 11px; font-weight: 600; line-height: 1.5;
+  color: var(--muted); background: var(--surface-2); border-radius: 999px;
+  vertical-align: 1px;
+}
 .tag-card .tcount { color: var(--faint); font-size: 13px; margin: 4px 0 12px; }
 .tag-bar { height: 6px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
 .tag-bar span { display: block; height: 100%; border-radius: 999px; background: var(--accent); }

@@ -1,8 +1,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { state, newDiary, editDiary, computeStats, tagCount } from '../store'
+import { tagListWithUntagged, tagsMatchFilter } from '../utils/tags'
 import * as dbApi from '../api'
 import { fmtDate } from '../utils/helpers'
+import { inDateRange, normalizeRange, presetRange, rangeLabel, shortRangeLabel } from '../utils/dateRange'
 import { sortBy, sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
 
@@ -30,17 +32,22 @@ watch(
 )
 
 /* ---- tag filter (multi-select) ---- */
-const filterTags = ref(state.tagFilter ? [state.tagFilter] : [])
+// 筛选状态放在 store 里：进编辑器再退回来时不会丢
+const filterTags = computed({
+  get: () => state.diaryFilter.tags,
+  set: (v) => { state.diaryFilter.tags = [...v] },
+})
 const tagPanelOpen = ref(false)
 const tagSearch = ref('')
 const draftTags = ref([])
 const tagFilterRef = ref(null)
 
-const allTags = computed(() => {
-  const set = new Set()
-  state.diaries.forEach((d) => (d.tags || []).forEach((t) => set.add(t)))
-  return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'))
-})
+const allTags = computed(() => tagListWithUntagged(state.diaries))
+
+/** 单个标签是否命中：系统「无标签」= 该日记没有任何标签 */
+function matchesTag(d, t) {
+  return tagsMatchFilter(d.tags, t)
+}
 
 const filteredAllTags = computed(() => {
   const kw = tagSearch.value.trim().toLowerCase()
@@ -86,23 +93,91 @@ function cancelTagPanel() {
   tagPanelOpen.value = false
 }
 
+/* ---- date range filter ---- */
+const dateFrom = computed({
+  get: () => state.diaryFilter.from,
+  set: (v) => { state.diaryFilter.from = v || '' },
+})
+const dateTo = computed({
+  get: () => state.diaryFilter.to,
+  set: (v) => { state.diaryFilter.to = v || '' },
+})
+const datePanelOpen = ref(false)
+const draftFrom = ref('')
+const draftTo = ref('')
+const dateFilterRef = ref(null)
+
+const dateActive = computed(() => !!(dateFrom.value || dateTo.value))
+const dateButtonText = computed(() =>
+  dateActive.value ? shortRangeLabel(dateFrom.value, dateTo.value) : '日期过滤'
+)
+
+const datePresets = [
+  { key: 'this-month', label: '本月' },
+  { key: 'last-month', label: '上月' },
+  { key: 'last-30', label: '近 30 天' },
+  { key: 'this-year', label: '今年' },
+  { key: 'last-year', label: '去年' },
+  { key: 'all', label: '全部时间' },
+]
+
+function toggleDatePanel() {
+  if (datePanelOpen.value) {
+    datePanelOpen.value = false
+    return
+  }
+  draftFrom.value = dateFrom.value
+  draftTo.value = dateTo.value
+  datePanelOpen.value = true
+}
+
+function applyDatePreset(key) {
+  const r = presetRange(key)
+  draftFrom.value = r.from
+  draftTo.value = r.to
+}
+
+function clearDraftDates() {
+  draftFrom.value = ''
+  draftTo.value = ''
+}
+
+/* 与标签面板一致：改草稿，点「完成」才生效 */
+function applyDates() {
+  const r = normalizeRange(draftFrom.value, draftTo.value)
+  dateFrom.value = r.from
+  dateTo.value = r.to
+  datePanelOpen.value = false
+}
+
 function clearAllFilters() {
   filterTags.value = []
   tagPanelOpen.value = false
+  dateFrom.value = ''
+  dateTo.value = ''
+  datePanelOpen.value = false
   state.search = ''
-  state.tagFilter = null
 }
 
 function onDocClick(e) {
   if (tagPanelOpen.value && tagFilterRef.value && !tagFilterRef.value.contains(e.target)) {
     cancelTagPanel()
   }
+  if (datePanelOpen.value && dateFilterRef.value && !dateFilterRef.value.contains(e.target)) {
+    datePanelOpen.value = false
+  }
 }
 
+/* 只按日期过滤后的集合：标签篇数统计以它为分母，保证数字自洽 */
+const dateFiltered = computed(() => {
+  if (!dateActive.value) return state.diaries
+  return state.diaries.filter((d) => inDateRange(d.date, dateFrom.value, dateTo.value))
+})
+
 const list = computed(() => {
-  let l = sortDiaries(state.diaries)
+  let l = sortDiaries(dateFiltered.value)
   if (filterTags.value.length) {
-    l = l.filter((d) => filterTags.value.some((t) => (d.tags || []).includes(t)))
+    l = l.filter((d) => filterTags.value.some((t) => matchesTag(d, t)))
   }
   if (searchIds.value) {
     l = l.filter((d) => searchIds.value.has(d.id))
@@ -110,15 +185,37 @@ const list = computed(() => {
   return l
 })
 
+/* ---- filtered summary ---- */
+const filterActive = computed(() => dateActive.value || filterTags.value.length > 0)
+const filteredWords = computed(() => list.value.reduce((s, d) => s + (d.wordCount || 0), 0))
+const tagCountsInRange = computed(() => {
+  const out = {}
+  for (const t of filterTags.value) {
+    out[t] = dateFiltered.value.filter((d) => matchesTag(d, t)).length
+  }
+  return out
+})
+
+const subline = computed(() => {
+  // 日期/标签筛选的结果数字放在汇总条里，这里只报全量，避免重复
+  if (filterActive.value) return `共 ${state.diaries.length} 篇记录`
+  if (searchIds.value) return `搜索命中 ${list.value.length} 篇`
+  return `共 ${state.diaries.length} 篇记录`
+})
+
 /* ---- lazy loading ---- */
 const pageSize = 20
-const visibleCount = ref(pageSize)
+// 恢复上次加载的条数，否则回到列表时深层滚动位置没有内容可显示
+const visibleCount = ref(Math.max(pageSize, Number(state.diaryVisible) || pageSize))
 const pagedList = computed(() => list.value.slice(0, visibleCount.value))
 const hasMore = computed(() => visibleCount.value < list.value.length)
 const sentinelRef = ref(null)
 let observer = null
 
-watch(list, () => { visibleCount.value = pageSize })
+watch(list, () => {
+  visibleCount.value = pageSize
+  state.diaryVisible = pageSize
+})
 
 watch(sentinelRef, (el) => {
   if (observer) { observer.disconnect(); observer = null }
@@ -131,8 +228,17 @@ watch(sentinelRef, (el) => {
   observer.observe(el)
 })
 
-onMounted(() => document.addEventListener('click', onDocClick))
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  // 回到列表时回到离开时的位置（进入编辑页/切换页面都会记住）
+  const savedY = Number(state.diaryScroll) || 0
+  if (savedY > 0) {
+    requestAnimationFrame(() => window.scrollTo({ top: savedY, behavior: 'auto' }))
+  }
+})
 onBeforeUnmount(() => {
+  state.diaryScroll = window.scrollY
+  state.diaryVisible = visibleCount.value
   document.removeEventListener('click', onDocClick)
   if (observer) observer.disconnect()
 })
@@ -145,7 +251,7 @@ const stats = computed(() => computeStats())
     <div class="page-head">
       <div>
         <h1 class="page-title">日记</h1>
-        <p class="page-sub">{{ filterTags.length ? `已筛选 ${filterTags.length} 个标签 · ${list.length} 篇` : `共 ${state.diaries.length} 篇记录` }}</p>
+        <p class="page-sub">{{ subline }}</p>
       </div>
     </div>
 
@@ -199,6 +305,46 @@ const stats = computed(() => computeStats())
         </div>
       </div>
 
+      <div class="tag-filter" ref="dateFilterRef">
+        <button
+          type="button"
+          class="tag-filter-btn"
+          :class="{ active: dateActive }"
+          :aria-expanded="datePanelOpen"
+          title="按日期区间筛选（可与标签组合）"
+          @click="toggleDatePanel"
+        >
+          <Icon name="calendar" />
+          {{ dateButtonText }}
+        </button>
+
+        <div v-if="datePanelOpen" class="tag-filter-popover date-filter-popover" @click.stop>
+          <div class="date-filter-row">
+            <label>
+              <span>开始日期</span>
+              <input v-model="draftFrom" type="date" :max="draftTo || undefined">
+            </label>
+            <label>
+              <span>结束日期</span>
+              <input v-model="draftTo" type="date" :min="draftFrom || undefined">
+            </label>
+          </div>
+          <div class="date-filter-presets">
+            <button
+              v-for="p in datePresets"
+              :key="p.key"
+              type="button"
+              @click="applyDatePreset(p.key)"
+            >{{ p.label }}</button>
+          </div>
+          <p class="date-filter-hint">只填一端表示「该日期之后 / 之前」，两端都空表示不限。</p>
+          <div class="tag-filter-foot">
+            <button type="button" class="btn btn-ghost btn-sm" @click="clearDraftDates">清除</button>
+            <button type="button" class="btn btn-primary btn-sm" @click="applyDates">完成</button>
+          </div>
+        </div>
+      </div>
+
       <label class="sort-select" title="排序方式">
         <Icon name="sort" />
         <select v-model="sortBy">
@@ -206,8 +352,20 @@ const stats = computed(() => computeStats())
           <option value="time-asc">最早优先</option>
         </select>
       </label>
+    </div>
 
-      <button v-if="filterTags.length" class="btn btn-ghost btn-sm" @click="clearAllFilters">清除筛选 ×</button>
+    <div v-if="filterActive" class="filter-summary">
+      <span v-if="dateActive" class="filter-summary-item">
+        <Icon name="calendar" />
+        {{ rangeLabel(dateFrom, dateTo) }}
+      </span>
+      <span v-for="t in filterTags" :key="t" class="filter-summary-chip">
+        {{ t }} · {{ tagCountsInRange[t] }} 篇
+      </span>
+      <span class="filter-summary-total">
+        合计 <strong>{{ list.length }}</strong> 篇 · {{ filteredWords }} 字
+      </span>
+      <button type="button" class="filter-summary-clear" @click="clearAllFilters">清除 ×</button>
     </div>
 
     <div class="diary-layout">

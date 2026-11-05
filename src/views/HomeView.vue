@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted } from 'vue'
 import {
   state, calAnchor, calShift, calGotoToday, calTogglePicker, calPickerToggleView,
   calPickerDecade, calPickerSelectYear, calPickerYearStep, calPickerSelectMonth,
@@ -51,6 +51,13 @@ const selectedEntries = computed(() => {
 })
 
 const decadeYears = computed(() => Array.from({ length: 12 }, (_, i) => state.calPickerDecade + i))
+
+// 从首页进编辑页再退回来时，回到离开时的滚动位置
+onMounted(() => {
+  const savedY = Number(state.homeScroll) || 0
+  if (savedY > 0) requestAnimationFrame(() => window.scrollTo({ top: savedY, behavior: 'auto' }))
+})
+onBeforeUnmount(() => { state.homeScroll = window.scrollY })
 </script>
 
 <template>

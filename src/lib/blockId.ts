@@ -47,6 +47,9 @@ export const BlockId = Extension.create({
       new Plugin({
         key: new PluginKey('blockId'),
         appendTransaction: (transactions, _oldState, newState) => {
+          // IME 上屏期间改写块 DOM 会让 Chrome/WebView2 的光标停在已输入文字之前。
+          // 块 ID 可延后到下一次普通文档变更时再分配，不能打断 composition。
+          if (transactions.some((tr) => tr.getMeta('composition'))) return null
           if (!transactions.some((tr) => tr.docChanged)) return null
           const tr: Transaction = newState.tr
           let changed = false

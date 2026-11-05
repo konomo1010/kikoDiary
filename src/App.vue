@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { state, init } from './store'
 import Sidebar from './components/Sidebar.vue'
+import Breadcrumb from './components/Breadcrumb.vue'
 import Modal from './components/Modal.vue'
 import TagModal from './components/TagModal.vue'
 import ToastHost from './components/ToastHost.vue'
@@ -21,6 +22,8 @@ init()
   <div v-if="ready" class="app">
     <Sidebar />
     <main class="main">
+      <!-- 编辑页内部自带面包屑（需要先确认未保存更改），这里只渲染其他页面 -->
+      <Breadcrumb v-if="state.view !== 'editor'" />
       <HomeView v-if="state.view === 'home'" />
       <DiaryView v-else-if="state.view === 'diary'" />
       <EditorView v-else-if="state.view === 'editor'" />

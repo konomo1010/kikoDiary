@@ -3,6 +3,7 @@ import { save } from '@tauri-apps/plugin-dialog'
 import * as dbApi from './api'
 import { SEED_DIARIES, SEED_TAGS } from './data/seed'
 import { todayStr, normalizeContent, docToText } from './utils/helpers'
+import { UNTAGGED_TAG, isUntaggedTag, withUntaggedTag } from './utils/tags'
 import { checkForUpdate, closeUpdate, installUpdate as runInstallUpdate } from './updater'
 
 const DEFAULT_SETTINGS = {
@@ -14,14 +15,24 @@ const DEFAULT_SETTINGS = {
 }
 const DEFAULT_USER = { name: 'Kiko User', avatar: '' }
 
+// UNTAGGED_TAG / isUntaggedTag / withUntaggedTag 来自 utils/tags：
+// 「无标签」是系统保留的筛选项，永远在标签列表首位、不写进日记、不可重命名或删除。
+
 const state = reactive({
   diaries: [],
-  tags: [...SEED_TAGS],
+  tags: withUntaggedTag(SEED_TAGS),
   settings: { ...DEFAULT_SETTINGS },
   user: { ...DEFAULT_USER },
   view: 'home',
   editingId: null,
-  tagFilter: null,
+  // 进入编辑页前的位置快照，用于面包屑与「返回来源」
+  editorOrigin: null,
+  // 日记列表的筛选状态（退回列表时原样恢复）
+  diaryFilter: { tags: [], from: '', to: '' },
+  // 各页面的滚动位置与已加载条数，同样用于「退回来时的地方」
+  diaryScroll: 0,
+  diaryVisible: 20,
+  homeScroll: 0,
   search: '',
   activeTags: [],
   hasTitle: true,
@@ -167,6 +178,8 @@ async function load() {
       Object.assign(state.user, DEFAULT_USER, config.user || {})
       if (Array.isArray(config.tags)) state.tags = config.tags
     }
+    // 旧数据里没有「无标签」，补齐到首位（它是系统标签，不落盘也不可删）
+    state.tags = withUntaggedTag(state.tags)
   } catch (e) {
     console.error('[store] load failed', e)
   }
@@ -176,7 +189,8 @@ async function writeConfig() {
   await dbApi.saveConfig({
     settings: state.settings,
     user: state.user,
-    tags: state.tags
+    // 「无标签」是系统筛选项，不落盘（每次启动自动补齐）
+    tags: state.tags.filter((t) => !isUntaggedTag(t))
   })
 }
 
@@ -188,6 +202,10 @@ function persist() {
 
 /* ================= Derived helpers ================= */
 function tagCount(name) {
+  // 「无标签」统计的是没有任何标签的日记
+  if (isUntaggedTag(name)) {
+    return state.diaries.filter((d) => !(d.tags || []).length).length
+  }
   return state.diaries.filter((d) => (d.tags || []).includes(name)).length
 }
 
@@ -220,12 +238,50 @@ function countWords(s) {
 /* ================= Navigation ================= */
 function showView(view) {
   state.view = view
-  if (view === 'tags') state.tagFilter = null
   window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+/** 记录「从哪儿来」：视图 + 日历选中日期（列表筛选存在 state.diaryFilter 里，无需快照） */
+function captureLocation() {
+  return {
+    view: state.view === 'editor' ? 'diary' : state.view,
+    calSelected: state.calSelected || null
+  }
+}
+
+/** 回到一个位置快照（日历选中一并还原；列表筛选本来就没丢） */
+function applyLocation(loc) {
+  const target = loc && loc.view ? loc : { view: 'diary' }
+  state.editingId = null
+  state.newDiaryDate = null
+  if (target.calSelected) state.calSelected = target.calSelected
+  if (['home', 'diary', 'tags', 'settings'].includes(target.view)) showView(target.view)
+  else showView('diary')
+}
+
+/**
+ * 返回进入编辑页之前的位置：从日历进编辑就回首页日历，从日记列表进就回列表，
+ * 标签筛选与滚动位置也一并恢复。
+ */
+function returnToOrigin() {
+  const origin = state.editorOrigin
+  state.editorOrigin = null
+  applyLocation(origin)
+}
+
+/** 面包屑跳转：目标为 { view } */
+function navigateTo(target) {
+  if (!target || !target.view) return
+  if (target.view === state.view) return
+  state.editorOrigin = null
+  state.editingId = null
+  state.newDiaryDate = null
+  showView(target.view)
 }
 
 /* ================= Diary CRUD ================= */
 function newDiary(dateStr) {
+  if (state.view !== 'editor') state.editorOrigin = captureLocation()
   state.editingId = null
   state.newDiaryDate = dateStr || null
   state.activeTags = []
@@ -234,6 +290,7 @@ function newDiary(dateStr) {
 }
 
 function editDiary(id) {
+  if (state.view !== 'editor') state.editorOrigin = captureLocation()
   state.editingId = id
   const d = state.diaries.find((x) => x.id === id)
   state.activeTags = d ? [...(d.tags || [])] : []
@@ -242,7 +299,10 @@ function editDiary(id) {
 }
 
 // returns: null (saved) | 'title' (needs title focus) | 'tags' (tag modal opened)
-function saveDiary(title, content, dateStr) {
+// opts.stay    true 时保存后留在编辑页（Ctrl+S 用），false/缺省时保存并返回列表
+// opts.onSaved 保存成功后的回调，参数为最终 id；编辑页用它刷新「未保存」快照
+function saveDiary(title, content, dateStr, opts = {}) {
+  const stay = !!opts.stay
   if (state.hasTitle && !title) {
     toast('请先写一个标题，或关闭标题栏', 'danger')
     return 'title'
@@ -278,6 +338,8 @@ function saveDiary(title, content, dateStr) {
     const dirName = Array.isArray(result) ? result[1] : ''
     if (editingId == null) {
       state.diaries.push({ id: newId, title, date, tags, wordCount, excerpt, dirName })
+      // 留在编辑页时立刻转为编辑态，避免下次保存又新建一篇
+      if (stay) state.editingId = newId
       toast('日记已保存', 'success')
     } else {
       const d = state.diaries.find((x) => x.id === editingId)
@@ -293,7 +355,12 @@ function saveDiary(title, content, dateStr) {
     }
     state.newDiaryDate = null
     persist()
-    showView('diary')
+    // 留在编辑页：不切视图，让调用方刷新快照后可继续写作
+    if (!stay) {
+      if (opts.leaveTo) navigateTo(opts.leaveTo)
+      else returnToOrigin()
+    }
+    if (typeof opts.onSaved === 'function') opts.onSaved(newId)
   }).catch((e) => {
     console.error('[store] saveDiary failed', e)
     toast('保存失败，请重试', 'danger')
@@ -315,7 +382,7 @@ function deleteDiary(id) {
         state.diaries = state.diaries.filter((x) => x.id !== id)
         persist()
         toast('日记已删除', 'success')
-        showView('diary')
+        returnToOrigin()
       }).catch((e) => {
         console.error('[store] deleteDiary failed', e)
         toast('删除失败，请重试', 'danger')
@@ -325,8 +392,7 @@ function deleteDiary(id) {
 }
 
 function backFromEditor() {
-  state.editingId = null
-  showView('diary')
+  returnToOrigin()
 }
 
 /* ================= Tags ================= */
@@ -355,6 +421,7 @@ function addTagFromModal(preset) {
     onConfirm: (value) => {
       const name = value.trim()
       if (!name) { toast('标签名不能为空', 'danger'); return false }
+      if (isUntaggedTag(name)) { toast(`「${UNTAGGED_TAG}」是系统标签，不能作为普通标签新建`, 'danger'); return false }
       if (state.tags.includes(name)) { toast('这个标签已存在', 'danger'); return false }
       state.tags.push(name)
       if (!state.activeTags.includes(name)) state.activeTags.push(name)
@@ -375,6 +442,7 @@ function openAddTag() {
     onConfirm: (value) => {
       const name = value.trim()
       if (!name) { toast('标签名不能为空', 'danger'); return false }
+      if (isUntaggedTag(name)) { toast(`「${UNTAGGED_TAG}」是系统标签，不能作为普通标签新建`, 'danger'); return false }
       if (state.tags.includes(name)) { toast('这个标签已存在', 'danger'); return false }
       state.tags.push(name)
       persist()
@@ -385,6 +453,10 @@ function openAddTag() {
 }
 
 function renameTag(oldName) {
+  if (isUntaggedTag(oldName)) {
+    toast(`「${UNTAGGED_TAG}」是系统标签，不能重命名`, 'danger')
+    return
+  }
   openModal({
     title: '重命名标签',
     body: `把标签「${oldName}」改成新名称，所有引用它的日记会一并更新。`,
@@ -395,6 +467,7 @@ function renameTag(oldName) {
       const name = value.trim()
       if (!name) { toast('标签名不能为空', 'danger'); return false }
       if (name === oldName) return true
+      if (isUntaggedTag(name)) { toast(`「${UNTAGGED_TAG}」是系统标签，不能作为普通标签新建`, 'danger'); return false }
       if (state.tags.includes(name)) { toast('这个标签已存在', 'danger'); return false }
       const idx = state.tags.indexOf(oldName)
       if (idx > -1) state.tags[idx] = name
@@ -414,6 +487,10 @@ function renameTag(oldName) {
 }
 
 function deleteTag(name) {
+  if (isUntaggedTag(name)) {
+    toast(`「${UNTAGGED_TAG}」是系统标签，不能删除`, 'danger')
+    return
+  }
   openModal({
     title: '删除标签',
     body: `确定删除标签「${name}」吗？该标签会从所有日记中移除，但日记本身不会被删除。`,
@@ -490,7 +567,10 @@ function calSelect(dateStr) {
 
 /* ================= Search / filter ================= */
 function filterByTag(tag) {
-  state.tagFilter = tag
+  // 从标签页点进来：只看这个标签，并清掉残留的日期区间，避免「筛了却看不到」
+  state.diaryFilter.tags = tag ? [tag] : []
+  state.diaryFilter.from = ''
+  state.diaryFilter.to = ''
   state.search = ''
   showView('diary')
 }
@@ -631,7 +711,7 @@ async function exportData() {
       const body = await dbApi.getBody(m.id)
       diaries.push({ ...m, content: body })
     }
-    const json = JSON.stringify({ diaries, tags: state.tags }, null, 2)
+    const json = JSON.stringify({ diaries, tags: state.tags.filter((t) => !isUntaggedTag(t)) }, null, 2)
     const path = await save({
       title: '导出数据',
       defaultPath: `kiko-${todayStr()}.json`,
@@ -676,7 +756,7 @@ function importData() {
         }
         state.diaries = (await dbApi.loadMeta()) || []
         if (data && !Array.isArray(data) && Array.isArray(data.tags)) {
-          state.tags = data.tags
+          state.tags = withUntaggedTag(data.tags)
           persist()
         }
         toast(`已导入 ${diaries.length} 篇日记`, 'success')
@@ -790,10 +870,11 @@ export {
   // helpers
   tagCount, computeStats, userAvatarChar,
   // navigation
-  showView,
+  showView, navigateTo, returnToOrigin,
   // diary
   newDiary, editDiary, saveDiary, deleteDiary, backFromEditor,
   // tags
+  UNTAGGED_TAG, isUntaggedTag, withUntaggedTag,
   toggleTag, openTagModal, closeTagModal, addTagFromModal, openAddTag, renameTag, deleteTag,
   // calendar
   calShift, calGotoToday, calTogglePicker, calPickerToggleView, calPickerDecade,

@@ -170,6 +170,28 @@
   flex-direction: column;
 }
 
+/*
+ * 有目录且正文区 ≥860px 时，目录独占一侧列（132~220px），正文仍是 708px，
+ * 对侧只保留 20px 最小留白。旧实现两侧共用 minmax(96px, 1fr)，
+ * 在 880~1000px 的窄笔记本上目录只剩 90px 左右，标题几乎没法读。
+ */
+/*
+ * 有目录（且正文区 ≥860px，由编辑器按实际宽度判断）时：正文固定 708px，
+ * 目录一侧至少 132px，对侧只保留 20px 最小留白。两侧都用 1fr，所以有余量时
+ * 目录与留白仍接近均分，正文基本保持居中；只有空间紧张时才由目录优先取到
+ * 132px，避免旧的 minmax(96px, 1fr) 在窄屏上把目录压成一条缝。
+ */
+.notion-like-editor-layout.toc-left.has-toc {
+  grid-template-columns:
+    [full-start] minmax(132px, 1fr) [content-start] var(--tt-content-width)
+    [content-end] minmax(20px, 1fr) [full-end];
+}
+.notion-like-editor-layout.toc-right.has-toc {
+  grid-template-columns:
+    [full-start] minmax(20px, 1fr) [content-start] var(--tt-content-width)
+    [content-end] minmax(132px, 1fr) [full-end];
+}
+
 .tiptap.ProseMirror {
   flex: 1;
   padding: 1.5rem 2rem 6rem;
@@ -830,16 +852,20 @@
   max-height: calc(100vh - var(--tt-toolbar-height) - 32px);
   overflow-y: auto;
   font-size: 13px;
+  /* 允许列被压缩，长标题在列内换行而不是把整列撑开 */
+  min-width: 0;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
 }
 .notion-like-editor-layout.toc-left .toc-sidebar {
   grid-column: full-start / content-start;
   grid-row: 1;
-  padding: 0.5rem 1.5rem 0.5rem 0.5rem;
+  padding: 0.5rem 1rem 0.5rem 0.5rem;
 }
 .notion-like-editor-layout.toc-right .toc-sidebar {
   grid-column: content-end / full-end;
   grid-row: 1;
-  padding: 0.5rem 0.5rem 0.5rem 1.5rem;
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
 }
 .toc-sidebar-title {
   font-size: 11px;
@@ -879,11 +905,10 @@
 .toc-sidebar a.level-3 {
   padding-left: 2rem;
 }
-@media (max-width: 1280px) {
-  .toc-sidebar {
-    display: none;
-  }
-}
+/*
+ * 目录显隐（放不下时让位给正文）由编辑器里 ResizeObserver 量出的实际宽度决定，
+ * 见 src/components/NotionLikeEditor.vue —— 不再用视口宽度的 @media 判断。
+ */
 
 /* ---------- Animations ---------- */
 @keyframes tt-fade-in {
