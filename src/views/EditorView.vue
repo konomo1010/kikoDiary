@@ -3,7 +3,7 @@ import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { state, saveDiary, deleteDiary, backFromEditor, toggleTag, openTagModal, openModal, editorDark, modal, tagModal, navigateTo } from '../store'
 import * as dbApi from '../api'
 import { convertFileSrc } from '@tauri-apps/api/core'
-import { todayStr, fmtDate, countWords, normalizeContent, toDateStr } from '../utils/helpers'
+import { todayStr, normalizeContent } from '../utils/helpers'
 import Icon from '../components/Icon.vue'
 import Breadcrumb from '../components/Breadcrumb.vue'
 import NotionLikeEditor from '../components/NotionLikeEditor.vue'
@@ -15,7 +15,6 @@ const currentDiary = computed(() => isNew.value ? null : state.diaries.find((x) 
 
 const title = ref('')
 const content = ref(null)
-const titleInputEl = ref(null)
 const initialSnapshot = ref(null)
 
 function resolveImageSrc(doc) {
@@ -49,9 +48,7 @@ async function initEditor() {
   }
 }
 
-const wordCount = computed(() => countWords(content.value))
-
-/* ---- date picker ---- */
+/* ---- date ---- */
 const initialDate = isNew.value
   ? (state.newDiaryDate || todayStr())
   : (currentDiary.value ? currentDiary.value.date : todayStr())
@@ -71,105 +68,6 @@ function hasUnsavedChanges() {
   return initialSnapshot.value !== null && diarySnapshot() !== initialSnapshot.value
 }
 
-const pickerOpen = ref(false)
-const pickerAnchor = ref(new Date(initialDate + 'T00:00:00'))
-const datePickerRef = ref(null)
-
-const WEEKDAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
-
-const pickerY = computed(() => pickerAnchor.value.getFullYear())
-const pickerM = computed(() => pickerAnchor.value.getMonth())
-
-const pickerCells = computed(() => {
-  const year = pickerY.value
-  const month = pickerM.value
-  const today = todayStr()
-  const first = new Date(year, month, 1)
-  const startOffset = (first.getDay() + 6) % 7
-  const daysInMonth = new Date(year, month + 1, 0).getDate()
-  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7
-  const list = []
-  for (let i = 0; i < totalCells; i++) {
-    const date = new Date(year, month, i - startOffset + 1)
-    const dateStr = toDateStr(date)
-    list.push({
-      dateStr,
-      day: date.getDate(),
-      other: date.getMonth() !== month,
-      today: dateStr === today,
-      selected: dateStr === dateValue.value
-    })
-  }
-  return list
-})
-
-const pickerView = ref('day')
-const pickerYear = ref(pickerAnchor.value.getFullYear())
-const pickerDecade = ref(Math.floor(pickerYear.value / 12) * 12)
-const months = Array.from({ length: 12 }, (_, i) => i)
-const decadeYears = computed(() => Array.from({ length: 12 }, (_, i) => pickerDecade.value + i))
-
-function toggleDatePicker() {
-  pickerOpen.value = !pickerOpen.value
-  if (pickerOpen.value) {
-    pickerAnchor.value = new Date(dateValue.value + 'T00:00:00')
-    pickerView.value = 'day'
-  }
-}
-
-function shiftMonth(delta) {
-  const d = new Date(pickerAnchor.value)
-  d.setDate(1)
-  d.setMonth(d.getMonth() + delta)
-  pickerAnchor.value = d
-}
-
-function openMonthPicker() {
-  pickerYear.value = pickerY.value
-  pickerDecade.value = Math.floor(pickerYear.value / 12) * 12
-  pickerView.value = 'month'
-}
-
-function pickMonth(mi) {
-  const d = new Date(pickerAnchor.value)
-  d.setDate(1)
-  d.setFullYear(pickerYear.value)
-  d.setMonth(mi)
-  pickerAnchor.value = d
-  pickerView.value = 'day'
-}
-
-function openYearPicker() {
-  pickerView.value = 'year'
-}
-
-function pickYear(yr) {
-  pickerYear.value = yr
-  pickerView.value = 'month'
-}
-
-function pickerYearStep(delta) {
-  pickerYear.value += delta
-  pickerDecade.value = Math.floor(pickerYear.value / 12) * 12
-}
-
-function pickerDecadeStep(delta) {
-  pickerDecade.value += delta
-}
-
-function onPickDate(dateStr) {
-  dateValue.value = dateStr
-  pickerOpen.value = false
-}
-
-function onDocClick(e) {
-  if (pickerOpen.value && datePickerRef.value && !datePickerRef.value.contains(e.target)) {
-    pickerOpen.value = false
-  }
-}
-
-const dateLabel = computed(() => fmtDate(dateValue.value))
-
 function onSave(opts) {
   const result = saveDiary(
     state.hasTitle ? title.value.trim() : '',
@@ -177,7 +75,6 @@ function onSave(opts) {
     dateValue.value,
     opts
   )
-  if (result === 'title' && titleInputEl.value) titleInputEl.value.focus()
   return result
 }
 
@@ -218,7 +115,6 @@ function onQuickSave() {
       }
     }
   )
-  if (result === 'title' && titleInputEl.value) titleInputEl.value.focus()
   return result
 }
 
@@ -247,26 +143,17 @@ function onBack() {
   })
 }
 
-function onToggleTitle() {
-  state.hasTitle = !state.hasTitle
-  if (!state.hasTitle) title.value = ''
-  if (state.hasTitle && titleInputEl.value) titleInputEl.value.focus()
-}
-
 onMounted(async () => {
   await initEditor()
   // 等 Tiptap 完成首次内容同步，避免初始化补全被当作未保存修改
   await nextTick()
   initialSnapshot.value = diarySnapshot()
-  if (isNew.value && state.hasTitle && titleInputEl.value) titleInputEl.value.focus()
-  document.addEventListener('click', onDocClick)
   // 捕获阶段监听，确保先于编辑器/Tiptap 的按键处理，并拦下浏览器默认保存
   window.addEventListener('keydown', onKeydown, true)
   window.addEventListener('kiko:back', onBack)
 })
 
 onBeforeUnmount(() => {
-  document.removeEventListener('click', onDocClick)
   window.removeEventListener('keydown', onKeydown, true)
   window.removeEventListener('kiko:back', onBack)
 })

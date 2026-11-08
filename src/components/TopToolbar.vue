@@ -13,10 +13,6 @@ import TableTriggerButton from './table/TableTriggerButton.vue'
 const editor = injectEditor()
 const tick = useEditorTick(editor)
 
-defineProps<{
-  actionsTarget?: string
-}>()
-
 function isActive(name: string, attrs?: Record<string, unknown>) {
   tick.value
   return editor?.value?.isActive(name, attrs) ?? false
@@ -198,21 +194,19 @@ const toggleEditorDark = inject('toggleEditorDark', () => {})
 
     <span class="tt-separator" />
 
-    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget">
-      <div class="tiptap-toolbar-group tiptap-toolbar-actions">
-        <ToolbarButton
-          :icon="tocSide === 'left' ? 'panel-left' : 'panel-right'"
-          :label="tocSide === 'left' ? 'TOC: left (click to move right)' : 'TOC: right (click to move left)'"
-          @click="toggleTocPosition"
-        />
-        <ToolbarButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
-        <ToolbarButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
-        <ToolbarButton
-          :icon="editorDark ? 'sun' : 'moon'"
-          :label="editorDark ? 'Light mode (editor only)' : 'Dark mode (editor only)'"
-          @click="toggleEditorDark"
-        />
-      </div>
-    </Teleport>
+    <div class="tiptap-toolbar-group tiptap-toolbar-actions">
+      <ToolbarButton
+        :icon="tocSide === 'left' ? 'panel-left' : 'panel-right'"
+        :label="tocSide === 'left' ? 'TOC: left (click to move right)' : 'TOC: right (click to move left)'"
+        @click="toggleTocPosition"
+      />
+      <ToolbarButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
+      <ToolbarButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
+      <ToolbarButton
+        :icon="editorDark ? 'sun' : 'moon'"
+        :label="editorDark ? 'Light mode (editor only)' : 'Dark mode (editor only)'"
+        @click="toggleEditorDark"
+      />
+    </div>
   </div>
 </template>

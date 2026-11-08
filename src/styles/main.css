@@ -202,8 +202,6 @@ body {
   margin-bottom: 10px;
 }
 .content-top-actions { display: flex; align-items: center; gap: 6px; flex: none; }
-.panel-top-actions { display: flex; align-items: center; gap: 2px; }
-.panel-top-actions .tiptap-toolbar-actions { margin-left: 0; gap: 2px; }
 .content-top .breadcrumb { margin: 0; }
 .diary-panel-toggle {
   width: 30px;
@@ -274,17 +272,6 @@ body {
   overflow: hidden;
 }
 .diary-panel .editor-card-body > .diary-panel-body { flex: 1; min-height: 0; }
-.diary-panel .diary-panel-foot {
-  position: static !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-  flex: none !important;
-  height: 28px !important;
-  padding: 0 4px !important;
-  border: none !important;
-  background: transparent !important;
-}
 .view { animation: fade .22s ease; }
 /* 只用 opacity：transform 会让 .view 成为 fixed 的包含块，导致表格把手坐标系偏移 */
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
@@ -509,18 +496,6 @@ body {
   background: var(--accent-solid); color: var(--on-accent);
   font-size: 11px; font-weight: 700;
 }
-.sort-select {
-  display: inline-flex; align-items: center; gap: 8px;
-  height: 42px; padding: 0 4px 0 12px;
-  background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: 11px;
-}
-.sort-select svg { width: 16px; height: 16px; color: var(--faint); flex: none; }
-.sort-select select {
-  height: 100%; padding: 0 8px;
-  border: none; outline: none; background: transparent;
-  font-family: inherit; font-size: 14px; color: var(--fg); cursor: pointer;
-}
 .tag-filter-popover {
   position: absolute; top: calc(100% + 8px); right: 0; z-index: 70;
   width: 440px; max-width: 92vw; padding: 14px;
@@ -613,9 +588,6 @@ body {
   height: 36px; padding: 0 10px; gap: 6px; border-radius: 9px; font-size: 12.5px;
 }
 .main--diary .tag-filter-btn svg { width: 14px; height: 14px; }
-.main--diary .sort-select { height: 36px; padding: 0 8px 0 8px; border-radius: 9px; gap: 2px; }
-.main--diary .sort-select select { font-size: 12.5px; padding: 0 6px 0 0; }
-.main--diary .sort-select svg { width: 14px; height: 14px; }
 .main--diary .tag-visibility-btn { width: 36px; height: 36px; border-radius: 9px; }
 .entry-list { display: flex; flex-direction: column; gap: 12px; }
 .load-more-sentinel { padding: 18px; text-align: center; color: var(--faint); font-size: 13px; }
@@ -663,7 +635,7 @@ body {
 .entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .entry-title { font-size: 16px; font-weight: 650; margin: 0; }
 .entry-date { color: var(--faint); font-size: 13px; white-space: nowrap; }
-.entry-date-row { display: flex; justify-content: flex-end; margin-top: 2px; }
+.entry-date-row { display: flex; justify-content: flex-end; margin-top: 2px; padding-right: 32px; }
 .entry-date-row .entry-date { line-height: 1.2; }
 .entry-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .entry-top--untitled { align-items: center; }

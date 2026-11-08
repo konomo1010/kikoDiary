@@ -25,7 +25,6 @@ const loading = ref(false)
 const initialSnapshot = ref('')
 
 const diary = computed(() => state.diaries.find((x) => x.id === props.diaryId) || null)
-const tags = computed(() => state.activeTags)
 const wordCount = computed(() => docToText(content.value).replace(/\s/g, '').length)
 
 function resolveImageSrc(doc) {
@@ -154,62 +153,10 @@ defineExpose({
   box-shadow: none;
   border-radius: 0;
 }
-.diary-panel-title-card {
-  flex: none;
-  margin-bottom: 14px;
-  padding: 16px 20px;
-}
-.diary-panel-body-card {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0;
-}
-.diary-panel-meta {
-  padding: 0;
-}
-.diary-panel-title {
-  width: 100%;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-family: inherit;
-  font-size: 18px;
-  font-weight: 650;
-  color: var(--fg);
-  padding: 2px 0 8px;
-}
-.diary-panel-sub {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.diary-panel-date {
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--fg);
-  font-family: inherit;
-  font-size: 13px;
-  padding: 4px 8px;
-}
 .diary-panel-body {
   flex: 1;
   min-height: 0;
   overflow: hidden;
   padding: 0 0 8px;
 }
-.diary-panel-foot {
-  flex: none;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
-  background: transparent;
-  border: none;
-}
-.diary-panel-foot .word-count { font-size: 12px; color: var(--faint); }
 </style>

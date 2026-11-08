@@ -18,7 +18,6 @@ import { editorDark, toggleEditorDark } from '../store'
 const props = defineProps<{
   modelValue?: object | string | null
   autofocus?: boolean
-  toolbarActionsTarget?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [object] }>()
 
@@ -169,7 +168,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="notion-like-editor-wrapper" :data-tt-theme="editorDark ? 'dark' : 'light'">
-    <TopToolbar :actions-target="toolbarActionsTarget" />
+    <TopToolbar />
     <div ref="layoutEl" class="notion-like-editor-layout" :class="[`toc-${tocSide}`, { 'has-toc': hasToc }]">
       <div class="notion-like-editor-content">
         <EditorContent :editor="editor" />

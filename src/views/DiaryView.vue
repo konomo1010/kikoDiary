@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { state, newDiary, editDiary, deleteDiary, computeStats, tagCount, setShowListTags, setDiaryPanelOpen, setDiaryListWidth, openModal, showView, togglePinDiary, duplicateDiary, tagModal, openTagModal, saveDiaryTags } from '../store'
 import { tagListWithUntagged, tagsMatchFilter } from '../utils/tags'
 import * as dbApi from '../api'
-import { fmtDate, fmtCreatedAt } from '../utils/helpers'
+import { fmtDate } from '../utils/helpers'
 import { inDateRange, normalizeRange, presetRange, rangeLabel, shortRangeLabel } from '../utils/dateRange'
 import { sortBy, sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
@@ -238,6 +238,11 @@ function openDiaryInPanel(d) {
 
 function openInlineTitle(d) {
   if (!panelOpen.value) return
+  // 双击的就是当前面板正在编辑的日记：直接展开标题卡，不需要保存提示
+  if (panelId.value === d.id) {
+    inlineTitleId.value = d.id
+    return
+  }
   withPanelGuard(() => {
     panelId.value = d.id
     inlineTitleId.value = d.id
@@ -455,6 +460,8 @@ function onDocClick(e) {
       !e.target.closest('.entry-card') &&
       !e.target.closest('.content-top') &&
       !e.target.closest('.diary-panel') &&
+      !e.target.closest('.diary-splitter') &&
+      !e.target.closest('.diary-vline') &&
       !e.target.closest('.modal-overlay') &&
       !e.target.closest('.modal') &&
       !e.target.closest('.emoji-picker')
@@ -742,7 +749,7 @@ const stats = computed(() => computeStats())
                 <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
               </div>
               <div class="entry-date-row">
-                <span class="entry-date">{{ fmtCreatedAt(d.dirName) || fmtDate(d.date) }}</span>
+                <span class="entry-date">{{ fmtDate(d.date) }}</span>
               </div>
               <span v-if="(state.settings.pinnedDiaryIds || []).includes(d.id)" class="entry-pin" title="已置顶">
                 <Icon name="pin" />

@@ -1,5 +1,4 @@
 export const WEEKDAYS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
-export const WEEKDAYS_LONG = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"]
 
 export const todayStr = () => {
   const d = new Date()
@@ -17,18 +16,6 @@ export const toDateStr = (d) => {
 export const weekdayOf = (dateStr) => WEEKDAYS[new Date(dateStr + "T00:00:00").getDay()]
 
 export const fmtDate = (dateStr) => `${dateStr} · ${weekdayOf(dateStr)}`
-
-/** 从日记目录名（保存时的时间戳）还原创建时间：2026-11-6 09:16 · 星期五 */
-export const fmtCreatedAt = (dirName) => {
-  const raw = Number(dirName)
-  if (!Number.isFinite(raw) || raw <= 0) return ""
-  const ms = raw < 1e12 ? raw * 1000 : raw
-  const d = new Date(ms)
-  if (Number.isNaN(d.getTime())) return ""
-  const hh = String(d.getHours()).padStart(2, "0")
-  const mm = String(d.getMinutes()).padStart(2, "0")
-  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${hh}:${mm} · ${WEEKDAYS_LONG[d.getDay()]}`
-}
 
 /* ================= Tiptap JSON helpers ================= */
 
