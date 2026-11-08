@@ -1,6 +1,6 @@
 [package]
 name = "kiko"
-version = "1.0.4"
+version = "1.0.5"
 description = "kiko - a simple local diary app"
 authors = ["konomo1010"]
 edition = "2021"
