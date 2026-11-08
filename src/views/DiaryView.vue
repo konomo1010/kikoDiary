@@ -1,33 +1,53 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { state, newDiary, editDiary, computeStats, tagCount } from '../store'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { state, newDiary, editDiary, deleteDiary, computeStats, tagCount, setShowListTags, setDiaryPanelOpen, setDiaryListWidth, openModal, showView, togglePinDiary, duplicateDiary, tagModal, openTagModal, saveDiaryTags } from '../store'
 import { tagListWithUntagged, tagsMatchFilter } from '../utils/tags'
 import * as dbApi from '../api'
-import { fmtDate } from '../utils/helpers'
+import { fmtDate, fmtCreatedAt } from '../utils/helpers'
 import { inDateRange, normalizeRange, presetRange, rangeLabel, shortRangeLabel } from '../utils/dateRange'
 import { sortBy, sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
+import Breadcrumb from '../components/Breadcrumb.vue'
+import EditorTitleCard from '../components/EditorTitleCard.vue'
+import DiaryEditorPanel from '../components/DiaryEditorPanel.vue'
+
+function toggleSort() {
+  sortBy.value = sortBy.value === 'time-desc' ? 'time-asc' : 'time-desc'
+}
 
 /* ---- search (backend full-text) ---- */
 const searchIds = ref(null)
 let searchTimer = null
+
+async function performSearch(kw) {
+  try {
+    const ids = await dbApi.searchDiaries(kw)
+    // 关键字在请求期间已变化时丢弃旧结果
+    if (state.search.trim() === kw) searchIds.value = new Set(ids)
+  } catch (e) {
+    console.error('[diary] search failed', e)
+  }
+}
+
+function scheduleSearch(kw, delay = 250) {
+  clearTimeout(searchTimer)
+  state.diaryFilter.search = kw
+  if (!kw) {
+    searchIds.value = null
+    return
+  }
+  searchTimer = setTimeout(() => performSearch(kw), delay)
+}
+
+/** 回车立即搜索，不等 250ms 防抖 */
+function runSearchNow() {
+  scheduleSearch(state.search.trim(), 0)
+}
+
 watch(
   () => state.search,
   (v) => {
-    clearTimeout(searchTimer)
-    const kw = v.trim()
-    if (!kw) {
-      searchIds.value = null
-      return
-    }
-    searchTimer = setTimeout(async () => {
-      try {
-        const ids = await dbApi.searchDiaries(kw)
-        searchIds.value = new Set(ids)
-      } catch (e) {
-        console.error('[diary] search failed', e)
-      }
-    }, 250)
+    scheduleSearch(v.trim())
   }
 )
 
@@ -156,7 +176,266 @@ function clearAllFilters() {
   dateFrom.value = ''
   dateTo.value = ''
   datePanelOpen.value = false
+  state.diaryFilter.search = ''
   state.search = ''
+}
+
+/* ---- right editor panel ---- */
+const panelRef = ref(null)
+const panelId = ref(null)
+const inlineTitleId = ref(null)
+const panelOpen = computed({
+  get: () => !!state.settings.diaryPanelOpen,
+  set: (v) => setDiaryPanelOpen(v),
+})
+
+function panelDirty() {
+  return !!panelRef.value?.hasUnsavedChanges?.()
+}
+
+watch(panelOpen, (open) => {
+  if (open && panelId.value == null) panelId.value = list.value[0]?.id ?? null
+})
+
+function withPanelGuard(action) {
+  if (!panelDirty()) {
+    action()
+    return
+  }
+  openModal({
+    title: '保存更改？',
+    body: '当前日记有未保存的修改，是否保存后继续？',
+    confirmText: '保存',
+    secondaryText: '不保存',
+    onConfirm: async () => {
+      const ok = await panelRef.value?.save?.()
+      if (ok !== false) action()
+    },
+    onSecondary: action,
+  })
+}
+
+function openDiaryInPanel(d) {
+  // 面板收起时，点击日记回到全页编辑
+  if (!panelOpen.value) {
+    editDiary(d.id)
+    return
+  }
+  if (panelId.value === d.id) return
+  if (inlineTitleId.value != null && inlineTitleId.value !== d.id) {
+    requestCloseInline(() => {
+      panelId.value = d.id
+      panelOpen.value = true
+    })
+    return
+  }
+  withPanelGuard(() => {
+    panelId.value = d.id
+    inlineTitleId.value = null
+    panelOpen.value = true
+  })
+}
+
+function openInlineTitle(d) {
+  if (!panelOpen.value) return
+  withPanelGuard(() => {
+    panelId.value = d.id
+    inlineTitleId.value = d.id
+    panelOpen.value = true
+  })
+}
+
+const cardMenuId = ref(null)
+
+function toggleCardMenu(id) {
+  cardMenuId.value = cardMenuId.value === id ? null : id
+}
+
+const tagModalTargetId = ref(null)
+
+function openTagEditorFromMenu(d) {
+  cardMenuId.value = null
+  const run = () => {
+    tagModalTargetId.value = d.id
+    state.hasTitle = !!(d.title && d.title.trim())
+    state.panelTitle = d.title || ''
+    state.panelDate = d.date || ''
+    state.activeTags = [...(d.tags || [])]
+    openTagModal()
+  }
+  if (panelOpen.value && panelId.value !== d.id) {
+    withPanelGuard(run)
+    return
+  }
+  run()
+}
+
+watch(
+  () => tagModal.open,
+  (open, prev) => {
+    if (prev && !open && tagModalTargetId.value != null) {
+      const id = tagModalTargetId.value
+      const tags = [...state.activeTags]
+      tagModalTargetId.value = null
+      saveDiaryTags(id, tags)
+    }
+  },
+)
+
+function deleteFromMenu(d) {
+  cardMenuId.value = null
+  deleteDiary(d.id)
+}
+
+function duplicateFromMenu(d) {
+  cardMenuId.value = null
+  duplicateDiary(d.id)
+}
+
+function pinFromMenu(d) {
+  cardMenuId.value = null
+  togglePinDiary(d.id)
+}
+
+function inlineTitleDirty() {
+  const d = state.diaries.find((x) => x.id === inlineTitleId.value)
+  if (!d) return false
+  const nextTags = [...state.activeTags].sort().join('\u0000')
+  const prevTags = [...(d.tags || [])].sort().join('\u0000')
+  return (
+    state.panelTitle.trim() !== (d.title || '').trim() ||
+    state.panelDate !== d.date ||
+    nextTags !== prevTags
+  )
+}
+
+function closeInlineTitle(restore = false) {
+  if (restore) {
+    const d = state.diaries.find((x) => x.id === inlineTitleId.value)
+    if (d) {
+      state.panelTitle = d.title || ''
+      state.panelDate = d.date || ''
+      state.activeTags = [...(d.tags || [])]
+    }
+  }
+  inlineTitleId.value = null
+}
+
+function requestCloseInline(action = () => {}) {
+  if (inlineTitleId.value == null) {
+    action()
+    return
+  }
+  if (!inlineTitleDirty()) {
+    closeInlineTitle()
+    action()
+    return
+  }
+  openModal({
+    title: '保存更改？',
+    body: '标题、日期或标签有未保存的修改，是否保存后继续？',
+    confirmText: '保存',
+    secondaryText: '不保存',
+    onConfirm: async () => {
+      const ok = await panelRef.value?.save?.()
+      if (ok !== false) {
+        closeInlineTitle()
+        action()
+      }
+    },
+    onSecondary: () => {
+      closeInlineTitle(true)
+      action()
+    },
+  })
+}
+
+watch(panelId, (id) => {
+  if (inlineTitleId.value != null && inlineTitleId.value !== id) inlineTitleId.value = null
+})
+watch(panelOpen, (open) => {
+  if (!open) inlineTitleId.value = null
+})
+
+function closeDiaryPanel() {
+  withPanelGuard(() => {
+    panelOpen.value = false
+  })
+}
+
+function onMouseBack() {
+  if (panelOpen.value) {
+    closeDiaryPanel()
+    return
+  }
+  showView('home')
+}
+
+function toggleDiaryPanel() {
+  if (panelOpen.value) {
+    closeDiaryPanel()
+    return
+  }
+  // 展开时若还没选中，自动打开列表第一篇，避免“点了没反应”
+  if (panelId.value == null) panelId.value = list.value[0]?.id ?? null
+  panelOpen.value = true
+}
+
+function openFullPageFromPanel() {
+  const id = panelId.value
+  if (id == null) return
+  withPanelGuard(() => {
+    panelOpen.value = false
+    editDiary(id)
+  })
+}
+
+async function savePanel() {
+  await panelRef.value?.save?.()
+}
+
+const listWidth = ref(Math.min(70, Math.max(25, Number(state.settings.diaryListWidth) || 50)))
+const lineX = ref(0)
+const splitActive = ref(false)
+const splitHover = ref(false)
+let layoutResizeObserver = null
+
+function updateLineX() {
+  const el = document.querySelector('.diary-splitter')
+  if (!el) return
+  const rect = el.getBoundingClientRect()
+  lineX.value = Math.round(rect.left + rect.width / 2)
+}
+
+watch([panelOpen, listWidth], () => nextTick(updateLineX))
+
+function startSplitDrag(event) {
+  event.preventDefault()
+  splitActive.value = true
+  const layout = event.currentTarget?.parentElement
+  if (!layout) return
+  const total = layout.getBoundingClientRect().width
+  if (!total) return
+  const startX = event.clientX
+  const startWidth = listWidth.value
+  let last = startWidth
+
+  const onMove = (ev) => {
+    const percent = startWidth + ((ev.clientX - startX) / total) * 100
+    last = Math.round(Math.min(70, Math.max(25, percent)))
+    listWidth.value = last
+    nextTick(updateLineX)
+  }
+  const onUp = () => {
+    splitActive.value = false
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp)
+    window.removeEventListener('pointercancel', onUp)
+    setDiaryListWidth(last)
+  }
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp)
+  window.addEventListener('pointercancel', onUp)
 }
 
 function onDocClick(e) {
@@ -165,6 +444,21 @@ function onDocClick(e) {
   }
   if (datePanelOpen.value && dateFilterRef.value && !dateFilterRef.value.contains(e.target)) {
     datePanelOpen.value = false
+  }
+  if (cardMenuId.value != null && e.target instanceof Element && !e.target.closest('.entry-card-menu')) {
+    cardMenuId.value = null
+  }
+  if (inlineTitleId.value != null && e.target instanceof Element) {
+    const outside =
+      !e.target.closest('.editor-card-title') &&
+      !e.target.closest('.meta-tags') &&
+      !e.target.closest('.entry-card') &&
+      !e.target.closest('.content-top') &&
+      !e.target.closest('.diary-panel') &&
+      !e.target.closest('.modal-overlay') &&
+      !e.target.closest('.modal') &&
+      !e.target.closest('.emoji-picker')
+    if (outside) requestCloseInline()
   }
 }
 
@@ -182,11 +476,22 @@ const list = computed(() => {
   if (searchIds.value) {
     l = l.filter((d) => searchIds.value.has(d.id))
   }
+  const pinned = state.settings.pinnedDiaryIds || []
+  if (pinned.length) {
+    l = [...l].sort((a, b) => {
+      const pa = pinned.includes(a.id) ? 1 : 0
+      const pb = pinned.includes(b.id) ? 1 : 0
+      return pb - pa
+    })
+  }
   return l
 })
 
 /* ---- filtered summary ---- */
-const filterActive = computed(() => dateActive.value || filterTags.value.length > 0)
+const searchActive = computed(() => !!state.search.trim())
+const filterActive = computed(
+  () => dateActive.value || filterTags.value.length > 0 || searchActive.value,
+)
 const filteredWords = computed(() => list.value.reduce((s, d) => s + (d.wordCount || 0), 0))
 const tagCountsInRange = computed(() => {
   const out = {}
@@ -194,13 +499,6 @@ const tagCountsInRange = computed(() => {
     out[t] = dateFiltered.value.filter((d) => matchesTag(d, t)).length
   }
   return out
-})
-
-const subline = computed(() => {
-  // 日期/标签筛选的结果数字放在汇总条里，这里只报全量，避免重复
-  if (filterActive.value) return `共 ${state.diaries.length} 篇记录`
-  if (searchIds.value) return `搜索命中 ${list.value.length} 篇`
-  return `共 ${state.diaries.length} 篇记录`
 })
 
 /* ---- lazy loading ---- */
@@ -230,6 +528,18 @@ watch(sentinelRef, (el) => {
 
 onMounted(() => {
   document.addEventListener('click', onDocClick)
+  window.addEventListener('resize', updateLineX)
+  window.addEventListener('kiko:back', onMouseBack)
+  // 回到列表时恢复搜索：输入框保留关键字，结果也必须一起恢复
+  if (state.search.trim()) runSearchNow()
+  nextTick(() => {
+    updateLineX()
+    const layout = document.querySelector('.diary-layout')
+    if (layout && typeof ResizeObserver !== 'undefined') {
+      layoutResizeObserver = new ResizeObserver(() => updateLineX())
+      layoutResizeObserver.observe(layout)
+    }
+  })
   // 回到列表时回到离开时的位置（进入编辑页/切换页面都会记住）
   const savedY = Number(state.diaryScroll) || 0
   if (savedY > 0) {
@@ -240,6 +550,10 @@ onBeforeUnmount(() => {
   state.diaryScroll = window.scrollY
   state.diaryVisible = visibleCount.value
   document.removeEventListener('click', onDocClick)
+  window.removeEventListener('resize', updateLineX)
+  window.removeEventListener('kiko:back', onMouseBack)
+  layoutResizeObserver?.disconnect()
+  layoutResizeObserver = null
   if (observer) observer.disconnect()
 })
 
@@ -248,29 +562,53 @@ const stats = computed(() => computeStats())
 
 <template>
   <section class="view">
-    <div class="page-head">
-      <div>
-        <h1 class="page-title">日记</h1>
-        <p class="page-sub">{{ subline }}</p>
+    <div class="content-top">
+      <Breadcrumb />
+      <div class="content-top-actions">
+        <template v-if="panelOpen && panelId != null">
+          <button type="button" class="diary-panel-toggle" title="全页编辑" @click="openFullPageFromPanel">
+            <Icon name="pen" />
+          </button>
+          <button type="button" class="btn btn-primary panel-save-btn" @click="savePanel">保存</button>
+        </template>
+        <button
+          type="button"
+          class="diary-panel-toggle"
+          :class="{ active: panelOpen }"
+          :aria-pressed="panelOpen"
+          :title="panelOpen ? '收起编辑面板' : '展开编辑面板'"
+          @click="toggleDiaryPanel"
+        >
+          <Icon name="panelRight" />
+        </button>
       </div>
     </div>
 
+    <div v-if="panelOpen" class="diary-vline" :class="{ hot: splitHover || splitActive }" :style="{ left: `${lineX}px` }" />
+
+    <div class="diary-layout" :class="{ 'diary-layout--panel': panelOpen }" :style="panelOpen ? { '--list-width': `${listWidth}%` } : undefined">
+            <div class="diary-main-col">
     <div class="toolbar">
       <div class="search">
         <Icon name="search" />
-        <input v-model="state.search" type="text" placeholder="搜索标题或内容…">
+        <input
+          v-model="state.search"
+          type="text"
+          placeholder="搜索标题或内容…"
+          @keydown.enter.prevent="runSearchNow"
+        >
       </div>
 
       <div class="tag-filter" ref="tagFilterRef">
         <button
           type="button"
-          class="tag-filter-btn"
+          class="tag-filter-btn icon-only"
           :class="{ active: filterTags.length > 0 }"
           :aria-expanded="tagPanelOpen"
+          title="标签过滤"
           @click="toggleTagPanel"
         >
           <Icon name="tag" />
-          标签过滤
           <span v-if="filterTags.length" class="tag-filter-count">{{ filterTags.length }}</span>
         </button>
 
@@ -308,14 +646,14 @@ const stats = computed(() => computeStats())
       <div class="tag-filter" ref="dateFilterRef">
         <button
           type="button"
-          class="tag-filter-btn"
+          class="tag-filter-btn icon-only"
           :class="{ active: dateActive }"
           :aria-expanded="datePanelOpen"
-          title="按日期区间筛选（可与标签组合）"
+          :title="dateButtonText"
           @click="toggleDatePanel"
         >
           <Icon name="calendar" />
-          {{ dateButtonText }}
+          <span v-if="dateActive" class="icon-dot" />
         </button>
 
         <div v-if="datePanelOpen" class="tag-filter-popover date-filter-popover" @click.stop>
@@ -345,16 +683,33 @@ const stats = computed(() => computeStats())
         </div>
       </div>
 
-      <label class="sort-select" title="排序方式">
+      <button
+        type="button"
+        class="tag-filter-btn icon-only"
+        :title="`排序：${sortBy === 'time-desc' ? '最新优先' : '最早优先'}（点击切换）`"
+        @click="toggleSort"
+      >
         <Icon name="sort" />
-        <select v-model="sortBy">
-          <option value="time-desc">最新优先</option>
-          <option value="time-asc">最早优先</option>
-        </select>
-      </label>
+      </button>
+
+      <button
+        type="button"
+        class="tag-visibility-btn"
+        :class="{ active: state.settings.showListTags }"
+        :aria-pressed="state.settings.showListTags"
+        :title="state.settings.showListTags ? '隐藏日记卡片标签' : '显示日记卡片标签'"
+        @click="setShowListTags(!state.settings.showListTags)"
+      >
+        <Icon :name="state.settings.showListTags ? 'eye' : 'eyeOff'" />
+      </button>
     </div>
 
+    <div class="diary-list-scroll">
     <div v-if="filterActive" class="filter-summary">
+      <span v-if="searchActive" class="filter-summary-item">
+        <Icon name="search" />
+        搜索：{{ state.search.trim() }}
+      </span>
       <span v-if="dateActive" class="filter-summary-item">
         <Icon name="calendar" />
         {{ rangeLabel(dateFrom, dateTo) }}
@@ -368,22 +723,45 @@ const stats = computed(() => computeStats())
       <button type="button" class="filter-summary-clear" @click="clearAllFilters">清除 ×</button>
     </div>
 
-    <div class="diary-layout">
-      <div>
         <div v-if="list.length" class="entry-list">
-          <div v-for="d in pagedList" :key="d.id" class="card entry-card" @click="editDiary(d.id)">
-            <div class="entry-top" :class="{ 'entry-top--untitled': !(d.title && d.title.trim()) }">
-              <h3 v-if="d.title && d.title.trim()" class="entry-title">{{ d.title }}</h3>
-              <div v-else class="entry-tags entry-tags-inline">
+          <template v-for="d in pagedList" :key="d.id">
+            <EditorTitleCard
+              v-if="inlineTitleId === d.id"
+              v-model:title="state.panelTitle"
+              v-model:date="state.panelDate"
+            />
+            <div v-else class="card entry-card" :class="{ 'entry-card--active': panelOpen && panelId === d.id, 'entry-card--menu': cardMenuId === d.id, 'entry-card--pinned': (state.settings.pinnedDiaryIds || []).includes(d.id) }" @click="openDiaryInPanel(d)" @dblclick.stop="openInlineTitle(d)">
+              <div class="entry-top" :class="{ 'entry-top--untitled': !(d.title && d.title.trim()) }">
+                <h3 v-if="d.title && d.title.trim()" class="entry-title">{{ d.title }}</h3>
+                <div v-else-if="state.settings.showListTags" class="entry-tags entry-tags-inline">
+                  <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
+                </div>
+              </div>
+              <div v-if="state.settings.showListExcerpt && d.excerpt" class="entry-excerpt">{{ d.excerpt }}</div>
+              <div v-if="state.settings.showListTags && d.title && d.title.trim()" class="entry-tags">
                 <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
               </div>
-              <span class="entry-date">{{ fmtDate(d.date) }}</span>
+              <div class="entry-date-row">
+                <span class="entry-date">{{ fmtCreatedAt(d.dirName) || fmtDate(d.date) }}</span>
+              </div>
+              <span v-if="(state.settings.pinnedDiaryIds || []).includes(d.id)" class="entry-pin" title="已置顶">
+                <Icon name="pin" />
+              </span>
+              <div class="entry-card-menu" @click.stop>
+                <button type="button" class="entry-menu-btn" title="更多操作" @click.stop="toggleCardMenu(d.id)">
+                  <Icon name="chevDown" />
+                </button>
+                <div v-if="cardMenuId === d.id" class="entry-menu-dropdown" @click.stop>
+                  <button type="button" @click="openTagEditorFromMenu(d)">标签</button>
+                  <button type="button" @click="duplicateFromMenu(d)">复制</button>
+                  <button type="button" @click="deleteFromMenu(d)">删除</button>
+                  <button type="button" @click="pinFromMenu(d)">
+                    {{ (state.settings.pinnedDiaryIds || []).includes(d.id) ? '取消置顶' : '置顶' }}
+                  </button>
+                </div>
+              </div>
             </div>
-            <div v-if="state.settings.showListExcerpt && d.excerpt" class="entry-excerpt">{{ d.excerpt }}</div>
-            <div v-if="d.title && d.title.trim()" class="entry-tags">
-              <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
-            </div>
-          </div>
+          </template>
           <div v-if="hasMore" ref="sentinelRef" class="load-more-sentinel">加载中…</div>
           <div v-else class="load-more-end">已经到底了</div>
         </div>
@@ -393,8 +771,31 @@ const stats = computed(() => computeStats())
           <button class="btn btn-ghost" @click="clearAllFilters">清除筛选</button>
         </div>
       </div>
+    </div>
 
-      <div class="card stats">
+      <div
+        v-if="panelOpen"
+        class="diary-splitter"
+        :class="{ active: splitActive }"
+        @pointerdown="startSplitDrag"
+        @mouseenter="splitHover = true"
+        @mouseleave="splitHover = false"
+      />
+
+      <DiaryEditorPanel
+        v-if="panelOpen && panelId != null"
+        ref="panelRef"
+        :diary-id="panelId"
+        @close="closeDiaryPanel"
+        @full-edit="openFullPageFromPanel"
+      />
+
+      <div v-else-if="panelOpen" class="diary-panel-empty">
+        <Icon name="panelRight" />
+        <p>从左侧选择一篇日记开始编辑</p>
+      </div>
+
+      <div v-else class="card stats">
         <div class="stats-head">
           <h3>统计</h3>
           <button class="btn btn-primary stats-new-btn" @click="newDiary()"><Icon name="plus" /> 新建日记</button>

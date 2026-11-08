@@ -7,9 +7,10 @@ import { TextAlign } from '@tiptap/extension-text-align'
 import { Subscript } from '@tiptap/extension-subscript'
 import { Superscript } from '@tiptap/extension-superscript'
 import { Typography } from '@tiptap/extension-typography'
-import { Table, TableCell, TableHeader, TableRow } from '@tiptap/extension-table'
 import { TaskList } from '@tiptap/extension-list'
 import { TaskItem } from './taskItem'
+import { TableNode, TableCellNode, TableHeaderNode, TableRowNode } from './table/tableNode'
+import { TableAlignment } from './table/tableAlignment'
 import { Placeholder } from '@tiptap/extensions'
 import { SlashCommands } from './slash'
 import { Indent } from './indent'
@@ -40,10 +41,11 @@ export function createEditorExtensions() {
     Superscript,
     Typography,
     Image.configure({ inline: false, allowBase64: true }),
-    Table.configure({ resizable: true }),
-    TableRow,
-    TableHeader,
-    TableCell,
+    TableNode.configure({ resizable: true }),
+    TableRowNode,
+    TableHeaderNode,
+    TableCellNode,
+    TableAlignment,
     TaskList,
     TaskItem.configure({ nested: true }),
     Indent.configure({ useStyle: true, indentUnit: 24 }),

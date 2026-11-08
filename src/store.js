@@ -10,6 +10,10 @@ const DEFAULT_SETTINGS = {
   theme: 'light',
   fontSize: 16,
   showListExcerpt: true,
+  showListTags: true,
+  diaryPanelOpen: false,
+  diaryListWidth: 50,
+  pinnedDiaryIds: [],
   // 启动时检查更新：默认关闭，可在「设置 → 关于」中开启
   checkUpdatesOnStartup: false
 }
@@ -28,12 +32,14 @@ const state = reactive({
   // 进入编辑页前的位置快照，用于面包屑与「返回来源」
   editorOrigin: null,
   // 日记列表的筛选状态（退回列表时原样恢复）
-  diaryFilter: { tags: [], from: '', to: '' },
+  diaryFilter: { tags: [], from: '', to: '', search: '' },
   // 各页面的滚动位置与已加载条数，同样用于「退回来时的地方」
   diaryScroll: 0,
   diaryVisible: 20,
   homeScroll: 0,
   search: '',
+  panelTitle: '',
+  panelDate: '',
   activeTags: [],
   hasTitle: true,
   calSelected: null,
@@ -369,6 +375,134 @@ function saveDiary(title, content, dateStr, opts = {}) {
   return null
 }
 
+async function saveDiaryFromPanel(id, title, content, dateStr, panelTags) {
+  const d = state.diaries.find((x) => x.id === id)
+  if (!d) return false
+  const tags = Array.isArray(panelTags) ? [...panelTags] : [...(d.tags || [])]
+  if (state.hasTitle && !title) {
+    toast('请先写一个标题，或关闭标题栏', 'danger')
+    return false
+  }
+  if (!state.hasTitle && !tags.length) {
+    toast('关闭标题后请至少选择一个标签', 'danger')
+    openTagModal()
+    return false
+  }
+  const wordCount = countWords(content)
+  const excerpt = buildExcerpt(content)
+  try {
+    const { content: resolvedContent, images, keepImages } = await collectImages(content)
+    const result = await dbApi.saveDiary({
+      id,
+      title,
+      date: dateStr || d.date,
+      tags,
+      content: resolvedContent,
+      text: docToText(resolvedContent),
+      wordCount,
+      excerpt,
+      images,
+      keepImages
+    })
+    const dirName = Array.isArray(result) ? result[1] : ''
+    d.title = title
+    d.date = dateStr || d.date
+    d.tags = tags
+    d.wordCount = wordCount
+    d.excerpt = excerpt
+    if (dirName) d.dirName = dirName
+    persist()
+    toast('修改已保存', 'success')
+    return true
+  } catch (e) {
+    console.error('[store] saveDiaryFromPanel failed', e)
+    toast('保存失败，请重试', 'danger')
+    return false
+  }
+}
+
+function togglePinDiary(id) {
+  const list = state.settings.pinnedDiaryIds || (state.settings.pinnedDiaryIds = [])
+  const index = list.indexOf(id)
+  if (index >= 0) list.splice(index, 1)
+  else list.push(id)
+  persist()
+  toast(index >= 0 ? '已取消置顶' : '已置顶', 'success')
+}
+
+async function duplicateDiary(id) {
+  const d = state.diaries.find((x) => x.id === id)
+  if (!d) return false
+  try {
+    const body = await dbApi.getBody(id)
+    const content = normalizeContent(body)
+    const tags = [...(d.tags || [])]
+    const title = d.title && d.title.trim() ? `${d.title} 副本` : '副本'
+    const date = todayStr()
+    const resolved = await collectImages(content)
+    const result = await dbApi.saveDiary({
+      id: 0,
+      title,
+      date,
+      tags,
+      content: resolved.content,
+      text: docToText(resolved.content),
+      wordCount: countWords(resolved.content),
+      excerpt: buildExcerpt(resolved.content),
+      images: resolved.images,
+      keepImages: resolved.keepImages
+    })
+    const newId = Array.isArray(result) ? result[0] : result
+    const dirName = Array.isArray(result) ? result[1] : ''
+    state.diaries.push({
+      id: newId,
+      title,
+      date,
+      tags,
+      wordCount: countWords(resolved.content),
+      excerpt: buildExcerpt(resolved.content),
+      dirName
+    })
+    persist()
+    toast('已复制日记', 'success')
+    return true
+  } catch (e) {
+    console.error('[store] duplicateDiary failed', e)
+    toast('复制失败，请重试', 'danger')
+    return false
+  }
+}
+
+async function saveDiaryTags(id, tags) {
+  const d = state.diaries.find((x) => x.id === id)
+  if (!d) return false
+  try {
+    const body = await dbApi.getBody(id)
+    const content = normalizeContent(body)
+    const resolved = await collectImages(content)
+    await dbApi.saveDiary({
+      id,
+      title: d.title || '',
+      date: d.date,
+      tags: [...tags],
+      content: resolved.content,
+      text: docToText(resolved.content),
+      wordCount: countWords(resolved.content),
+      excerpt: buildExcerpt(resolved.content),
+      images: resolved.images,
+      keepImages: resolved.keepImages
+    })
+    d.tags = [...tags]
+    persist()
+    toast('标签已更新', 'success')
+    return true
+  } catch (e) {
+    console.error('[store] saveDiaryTags failed', e)
+    toast('保存标签失败，请重试', 'danger')
+    return false
+  }
+}
+
 function deleteDiary(id) {
   const d = state.diaries.find((x) => x.id === id)
   if (!d) return
@@ -571,6 +705,7 @@ function filterByTag(tag) {
   state.diaryFilter.tags = tag ? [tag] : []
   state.diaryFilter.from = ''
   state.diaryFilter.to = ''
+  state.diaryFilter.search = ''
   state.search = ''
   showView('diary')
 }
@@ -586,6 +721,21 @@ function setShowListExcerpt(v) {
   state.settings.showListExcerpt = v
   persist()
   toast(v ? '已显示列表内容摘要' : '已隐藏列表内容摘要', 'success')
+}
+
+function setShowListTags(v) {
+  state.settings.showListTags = !!v
+  persist()
+}
+
+function setDiaryPanelOpen(v) {
+  state.settings.diaryPanelOpen = !!v
+  persist()
+}
+
+function setDiaryListWidth(v) {
+  state.settings.diaryListWidth = Math.min(70, Math.max(25, Number(v) || 50))
+  persist()
 }
 
 function setCheckUpdatesOnStartup(v) {
@@ -872,7 +1022,8 @@ export {
   // navigation
   showView, navigateTo, returnToOrigin,
   // diary
-  newDiary, editDiary, saveDiary, deleteDiary, backFromEditor,
+  newDiary, editDiary, saveDiary, saveDiaryFromPanel, saveDiaryTags, deleteDiary, backFromEditor,
+  togglePinDiary, duplicateDiary,
   // tags
   UNTAGGED_TAG, isUntaggedTag, withUntaggedTag,
   toggleTag, openTagModal, closeTagModal, addTagFromModal, openAddTag, renameTag, deleteTag,
@@ -882,7 +1033,7 @@ export {
   // search / filter
   filterByTag,
   // settings
-  setTheme, setShowListExcerpt, setCheckUpdatesOnStartup,
+  setTheme, setShowListExcerpt, setShowListTags, setDiaryPanelOpen, setDiaryListWidth, setCheckUpdatesOnStartup,
   // update
   updateState, checkUpdate, installUpdateFlow, promptInstallUpdate,
   applyTheme, editorDark, toggleEditorDark,

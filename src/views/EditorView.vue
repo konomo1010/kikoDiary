@@ -7,6 +7,8 @@ import { todayStr, fmtDate, countWords, normalizeContent, toDateStr } from '../u
 import Icon from '../components/Icon.vue'
 import Breadcrumb from '../components/Breadcrumb.vue'
 import NotionLikeEditor from '../components/NotionLikeEditor.vue'
+import EditorTitleCard from '../components/EditorTitleCard.vue'
+import EditorBodyCard from '../components/EditorBodyCard.vue'
 
 const isNew = computed(() => state.editingId == null)
 const currentDiary = computed(() => isNew.value ? null : state.diaries.find((x) => x.id === state.editingId))
@@ -260,11 +262,13 @@ onMounted(async () => {
   document.addEventListener('click', onDocClick)
   // 捕获阶段监听，确保先于编辑器/Tiptap 的按键处理，并拦下浏览器默认保存
   window.addEventListener('keydown', onKeydown, true)
+  window.addEventListener('kiko:back', onBack)
 })
 
 onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClick)
   window.removeEventListener('keydown', onKeydown, true)
+  window.removeEventListener('kiko:back', onBack)
 })
 </script>
 
@@ -278,104 +282,10 @@ onBeforeUnmount(() => {
       <button class="btn btn-primary" @click="onSave">保存日记</button>
     </div>
 
-    <div class="card editor-card editor-card-title">
-      <input v-if="state.hasTitle" ref="titleInputEl" v-model="title" class="title-input" type="text" placeholder="给今天起个标题…" maxlength="60">
+    <EditorTitleCard v-model:title="title" v-model:date="dateValue" :autofocus="isNew && state.hasTitle" />
 
-      <div class="editor-meta-row">
-        <div class="editor-meta">
-          <div class="date-picker" ref="datePickerRef">
-            <button type="button" class="date-trigger" title="选择日期" @click="toggleDatePicker">
-              <Icon name="calendar" /> {{ dateLabel }}
-            </button>
-            <div v-if="pickerOpen" class="date-popover" @click.stop>
-              <template v-if="pickerView === 'day'">
-                <div class="date-popover-head">
-                  <button type="button" class="cal-nav-btn" title="上个月" @click="shiftMonth(-1)"><Icon name="chevLeft" /></button>
-                  <button type="button" class="date-popover-title" title="选择年月" @click="openMonthPicker">{{ pickerY }} 年 {{ pickerM + 1 }} 月</button>
-                  <button type="button" class="cal-nav-btn" title="下个月" @click="shiftMonth(1)"><Icon name="chevRight" /></button>
-                </div>
-                <div class="cal-weekdays">
-                  <span v-for="w in WEEKDAY_LABELS" :key="w">{{ w }}</span>
-                </div>
-                <div class="cal-days">
-                  <button
-                    v-for="c in pickerCells"
-                    :key="c.dateStr"
-                    type="button"
-                    class="cal-day"
-                    :class="{ other: c.other, today: c.today, selected: c.selected }"
-                    @click="onPickDate(c.dateStr)"
-                  >{{ c.day }}</button>
-                </div>
-                <div class="date-popover-foot">
-                  <button type="button" class="cal-today-btn" @click="onPickDate(todayStr())">回到今天</button>
-                </div>
-              </template>
-
-              <template v-else-if="pickerView === 'month'">
-                <div class="date-popover-head">
-                  <button type="button" class="cal-nav-btn" title="上一年" @click="pickerYearStep(-1)"><Icon name="chevLeft" /></button>
-                  <button type="button" class="date-popover-title" title="选择年份" @click="openYearPicker">{{ pickerYear }} 年</button>
-                  <button type="button" class="cal-nav-btn" title="下一年" @click="pickerYearStep(1)"><Icon name="chevRight" /></button>
-                </div>
-                <div class="cal-picker-grid">
-                  <button
-                    v-for="mi in months"
-                    :key="mi"
-                    type="button"
-                    class="cal-picker-cell"
-                    :class="{ selected: pickerYear === pickerY && mi === pickerM }"
-                    @click="pickMonth(mi)"
-                  >{{ mi + 1 }} 月</button>
-                </div>
-              </template>
-
-              <template v-else>
-                <div class="date-popover-head">
-                  <button type="button" class="cal-nav-btn" title="上一个年代" @click="pickerDecadeStep(-12)"><Icon name="chevLeft" /></button>
-                  <span class="date-popover-title static">{{ pickerDecade }} – {{ pickerDecade + 11 }}</span>
-                  <button type="button" class="cal-nav-btn" title="下一个年代" @click="pickerDecadeStep(12)"><Icon name="chevRight" /></button>
-                </div>
-                <div class="cal-picker-grid">
-                  <button
-                    v-for="yr in decadeYears"
-                    :key="yr"
-                    type="button"
-                    class="cal-picker-cell"
-                    :class="{ selected: yr === pickerY }"
-                    @click="pickYear(yr)"
-                  >{{ yr }}</button>
-                </div>
-              </template>
-            </div>
-          </div>
-          <button type="button" class="title-toggle" :class="{ on: state.hasTitle }" role="switch" :aria-checked="state.hasTitle" @click="onToggleTitle">
-            <span class="tt-track"><span class="tt-thumb"></span></span>
-            <span class="tt-label">标题</span>
-          </button>
-          <button type="button" class="tag-add-btn" @click="openTagModal"><Icon name="plus" /> 添加标签</button>
-          <span v-if="!state.hasTitle && !state.activeTags.length" class="tag-req">必选</span>
-        </div>
-      </div>
-
-      <div v-if="state.activeTags.length" class="meta-tags">
-        <span v-for="t in state.activeTags" :key="t" class="tag-sel-chip">{{ t }}
-          <button type="button" class="x" title="移除" :aria-label="`移除 ${t}`" @click="toggleTag(t)"><Icon name="x" /></button>
-        </span>
-      </div>
-    </div>
-
-    <div class="card editor-card editor-card-body" :class="{ 'editor-card-body--dark': editorDark }">
+    <EditorBodyCard :content="content" :status="isNew ? '新建日记' : '编辑日记'">
       <NotionLikeEditor v-model="content" :autofocus="isNew && !state.hasTitle" />
-
-      <div
-        class="editor-foot"
-        :class="{ 'editor-foot--dark': editorDark }"
-        :style="editorDark ? { background: '#0e0e11', color: 'rgba(245,245,245,0.65)' } : {}"
-      >
-        <span class="word-count">{{ wordCount }} 字</span>
-        <span class="word-count">{{ isNew ? '新建日记' : '编辑日记' }}</span>
-      </div>
-    </div>
+    </EditorBodyCard>
   </section>
 </template>

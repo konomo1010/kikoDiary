@@ -16,15 +16,22 @@ export interface SlashItem {
   description: string
   keywords: string[]
   icon: string
+  group: string
   command: (props: { editor: Editor; range: RangeLike }) => void
 }
 
+/**
+ * Slash 菜单项，按 my-app notion-like 模板分组：
+ * Style（文本块类型）/ Insert（插入元素）/ Upload（上传）
+ */
 export const slashItems: SlashItem[] = [
+  // ---- Style ----
   {
     title: 'Text',
     description: 'Regular text paragraph',
     keywords: ['p', 'paragraph', 'text'],
     icon: 'text',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setParagraph().run()
     },
@@ -32,8 +39,9 @@ export const slashItems: SlashItem[] = [
   {
     title: 'Heading 1',
     description: 'Top-level heading',
-    keywords: ['h1', 'heading1'],
+    keywords: ['h1', 'heading1', 'h', 'heading'],
     icon: 'heading1',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 1 }).run()
     },
@@ -41,17 +49,19 @@ export const slashItems: SlashItem[] = [
   {
     title: 'Heading 2',
     description: 'Key section heading',
-    keywords: ['h2', 'heading2'],
+    keywords: ['h2', 'heading2', 'subheading'],
     icon: 'heading2',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 2 }).run()
     },
   },
   {
     title: 'Heading 3',
-    description: 'Subsection heading',
-    keywords: ['h3', 'heading3'],
+    description: 'Subsection and group heading',
+    keywords: ['h3', 'heading3', 'subheading'],
     icon: 'heading3',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHeading({ level: 3 }).run()
     },
@@ -59,8 +69,9 @@ export const slashItems: SlashItem[] = [
   {
     title: 'Bullet List',
     description: 'List with unordered items',
-    keywords: ['ul', 'li', 'list', 'bullet'],
+    keywords: ['ul', 'li', 'list', 'bullet', 'bulletlist'],
     icon: 'bullet-list',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleBulletList().run()
     },
@@ -68,8 +79,9 @@ export const slashItems: SlashItem[] = [
   {
     title: 'Numbered List',
     description: 'List with ordered items',
-    keywords: ['ol', 'list', 'numbered'],
+    keywords: ['ol', 'list', 'numbered', 'numberedlist'],
     icon: 'ordered-list',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleOrderedList().run()
     },
@@ -77,8 +89,9 @@ export const slashItems: SlashItem[] = [
   {
     title: 'To-do list',
     description: 'List with tasks',
-    keywords: ['task', 'todo', 'checklist'],
+    keywords: ['task', 'todo', 'checklist', 'tasklist'],
     icon: 'task-list',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleTaskList().run()
     },
@@ -88,47 +101,68 @@ export const slashItems: SlashItem[] = [
     description: 'Blockquote block',
     keywords: ['quote', 'blockquote'],
     icon: 'blockquote',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleBlockquote().run()
     },
   },
   {
     title: 'Code Block',
-    description: 'Code block',
+    description: 'Code block with syntax highlighting',
     keywords: ['code', 'pre'],
     icon: 'code-block',
+    group: 'Style',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).toggleCodeBlock().run()
     },
   },
+
+  // ---- Insert ----
   {
     title: 'Table',
     description: 'Insert a 3×3 table',
-    keywords: ['table', 'grid'],
+    keywords: ['table', 'grid', 'inserttable'],
     icon: 'table',
+    group: 'Insert',
     command: ({ editor, range }) => {
       editor
         .chain()
         .focus()
         .deleteRange(range)
-        .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
+        .insertTable({ rows: 3, cols: 3, withHeaderRow: false })
         .run()
     },
   },
   {
     title: 'Separator',
-    description: 'Horizontal line',
-    keywords: ['hr', 'line', 'separator', 'divider'],
+    description: 'Horizontal line to separate content',
+    keywords: ['hr', 'line', 'separator', 'divider', 'horizontalrule'],
     icon: 'minus',
+    group: 'Insert',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).setHorizontalRule().run()
     },
   },
   {
+    title: 'Emoji',
+    description: 'Insert an emoji',
+    keywords: ['emoji', 'emoticon', 'smiley'],
+    icon: 'emoji',
+    group: 'Insert',
+    command: ({ editor, range }) => {
+      editor.chain().focus().deleteRange(range).run()
+      // 触发全局 emoji picker（由 NotionLikeEditor 挂载）
+      window.dispatchEvent(new CustomEvent('kiko:open-emoji-picker'))
+    },
+  },
+
+  // ---- Upload ----
+  {
     title: 'Image',
     description: 'Upload an image',
     keywords: ['image', 'img', 'picture', 'upload', 'media'],
     icon: 'image',
+    group: 'Upload',
     command: ({ editor, range }) => {
       editor.chain().focus().deleteRange(range).run()
       pickAndInsertImage(editor)
@@ -167,6 +201,7 @@ export const SlashCommands = Extension.create({
           return slashItems.filter(
             (item) =>
               item.title.toLowerCase().includes(q) ||
+              item.description.toLowerCase().includes(q) ||
               item.keywords.some((k) => k.includes(q))
           )
         },

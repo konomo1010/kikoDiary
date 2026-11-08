@@ -17,6 +17,16 @@ const TITLE_MAX = 16
 export function diaryLabel(filter) {
   const tags = filter && Array.isArray(filter.tags) ? filter.tags : []
   const hasRange = !!(filter && (filter.from || filter.to))
+  const rawSearch = filter && typeof filter.search === 'string' ? filter.search.trim() : ''
+  const search = rawSearch.length > 12 ? `${rawSearch.slice(0, 12)}…` : rawSearch
+
+  if (search) {
+    if (tags.length === 1) return `标签：${tags[0]} · 搜索：${search}`
+    if (tags.length > 1) return `标签：${tags[0]} 等 ${tags.length} 个 · 搜索：${search}`
+    if (hasRange) return `${VIEW_LABELS.diary} · 按日期 · 搜索：${search}`
+    return `搜索：${search}`
+  }
+
   if (tags.length === 1) return `标签：${tags[0]}`
   if (tags.length > 1) return `标签：${tags[0]} 等 ${tags.length} 个`
   if (hasRange) return `${VIEW_LABELS.diary} · 按日期`

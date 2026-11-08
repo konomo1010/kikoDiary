@@ -13,6 +13,7 @@ webview2-data
 test-data
 src-tauri/data
 src-tauri/webview2-data
+src-tauri/webview2-data-dev
 
 # 构建临时目录（规避 TEMP 权限问题）
 .tmp

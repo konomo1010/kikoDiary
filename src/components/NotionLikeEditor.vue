@@ -5,6 +5,8 @@ import type { Editor } from '@tiptap/core'
 import TopToolbar from './TopToolbar.vue'
 import FloatingToolbar from './FloatingToolbar.vue'
 import TocSidebar from './TocSidebar.vue'
+import EmojiPicker from './EmojiPicker.vue'
+import TableHandles from './TableHandles.vue'
 import {
   createEditorExtensions,
   insertImageFiles,
@@ -16,6 +18,7 @@ import { editorDark, toggleEditorDark } from '../store'
 const props = defineProps<{
   modelValue?: object | string | null
   autofocus?: boolean
+  toolbarActionsTarget?: string
 }>()
 const emit = defineEmits<{ 'update:modelValue': [object] }>()
 
@@ -42,7 +45,37 @@ onMounted(() => {
     measureLayout(entries[0]?.contentRect.width ?? 0)
   })
   layoutObserver.observe(el)
+
+  // Mod+/ 触发 slash 菜单（与 my-app 一致）
+  document.addEventListener('keydown', onSlashShortcut)
 })
+
+/** Mod+/ 或 Cmd+/：在当前光标位置插入 / 触发 slash 菜单 */
+function onSlashShortcut(e: KeyboardEvent) {
+  const ed = editor.value
+  if (!ed || !ed.isEditable) return
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return
+  if (e.key !== '/' && e.key !== '�') return
+  e.preventDefault()
+  e.stopPropagation()
+
+  const { $from } = ed.state.selection
+  const currentNode = $from.node()
+  const isEmpty = currentNode.textContent.length === 0
+  const isStartOfBlock = $from.parentOffset === 0
+
+  if (isEmpty && isStartOfBlock) {
+    ed.chain().focus().insertContent({ type: 'text', text: '/' }).run()
+  } else {
+    ed.chain()
+      .focus()
+      .insertContentAt($from.after(), {
+        type: 'paragraph',
+        content: [{ type: 'text', text: '/' }],
+      })
+      .run()
+  }
+}
 
 // Editor-local dark mode state lives in the store so the editor footer can follow it too.
 provide('editorDark', editorDark)
@@ -107,16 +140,36 @@ watch(
 
 provideEditor(editor)
 
+// Emoji picker 状态
+const emojiOpen = ref(false)
+function onOpenEmojiPicker() {
+  emojiOpen.value = true
+}
+function onPickEmoji(e: string) {
+  const ed = editor.value
+  if (ed) ed.chain().focus().insertContent(e).run()
+  emojiOpen.value = false
+}
+function onCloseEmojiPicker() {
+  emojiOpen.value = false
+}
+
+onMounted(() => {
+  window.addEventListener('kiko:open-emoji-picker', onOpenEmojiPicker)
+})
+
 onBeforeUnmount(() => {
   layoutObserver?.disconnect()
   layoutObserver = null
+  document.removeEventListener('keydown', onSlashShortcut)
+  window.removeEventListener('kiko:open-emoji-picker', onOpenEmojiPicker)
   editor.value?.destroy()
 })
 </script>
 
 <template>
   <div class="notion-like-editor-wrapper" :data-tt-theme="editorDark ? 'dark' : 'light'">
-    <TopToolbar />
+    <TopToolbar :actions-target="toolbarActionsTarget" />
     <div ref="layoutEl" class="notion-like-editor-layout" :class="[`toc-${tocSide}`, { 'has-toc': hasToc }]">
       <div class="notion-like-editor-content">
         <EditorContent :editor="editor" />
@@ -124,5 +177,9 @@ onBeforeUnmount(() => {
       <TocSidebar />
     </div>
     <FloatingToolbar />
+    <div class="table-handles-wrapper">
+      <TableHandles />
+    </div>
+    <EmojiPicker :open="emojiOpen" @select="onPickEmoji" @close="onCloseEmojiPicker" />
   </div>
 </template>

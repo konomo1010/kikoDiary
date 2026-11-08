@@ -161,8 +161,133 @@ body {
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; padding: 34px 40px 60px; max-width: 1240px; margin: 0 auto; }
+.main.main--diary {
+  max-width: none;
+  margin: 0;
+  padding: 8px 20px 0;
+  height: 100vh;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.main--diary .content-top { flex: none; }
+.main--diary .view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.main--diary .diary-layout { flex: 1; min-height: 0; align-items: stretch; gap: 22px; }
+.main--diary .diary-main-col {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-right: 0;
+  margin-right: -11px;
+}
+.main--diary .diary-main-col .toolbar { flex: none; position: static; padding-right: 11px; }
+.main--diary .diary-list-scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: thin; padding-right: 11px; }
+.main--diary .diary-layout--panel { gap: 0 12px; }
+.main--diary .diary-layout--panel .diary-main-col { margin-right: -6px; }
+.main--diary .diary-layout--panel .diary-main-col .toolbar,
+.main--diary .diary-layout--panel .diary-list-scroll { padding-right: 6px; }
+.main--diary .stats { align-self: start; }
+.diary-layout--panel { align-items: stretch; }
+.main--diary .content-top { min-height: 24px; margin-bottom: 8px; }
+.main--diary .breadcrumb { font-size: 11.5px; }
+.main--diary .breadcrumb { margin-bottom: 0; }
+.content-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 32px;
+  margin-bottom: 10px;
+}
+.content-top-actions { display: flex; align-items: center; gap: 6px; flex: none; }
+.panel-top-actions { display: flex; align-items: center; gap: 2px; }
+.panel-top-actions .tiptap-toolbar-actions { margin-left: 0; gap: 2px; }
+.content-top .breadcrumb { margin: 0; }
+.diary-panel-toggle {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm, 0 1px 2px rgba(17, 24, 39, 0.06));
+  transition: background .15s ease, color .15s ease, border-color .15s ease;
+}
+.diary-panel-toggle:hover { background: var(--surface-2); color: var(--fg); }
+.diary-panel-toggle.active { color: var(--accent-strong); border-color: var(--accent); }
+.diary-panel-toggle svg { width: 17px; height: 17px; }
+.panel-save-btn { height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+.diary-panel-empty {
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--faint);
+  text-align: center;
+}
+.diary-panel-empty svg { width: 28px; height: 28px; }
+.diary-panel-empty p { margin: 0; font-size: 13px; }
+.diary-panel .notion-like-editor-wrapper { background: var(--tt-bg-color); height: 100%; }
+.diary-panel .notion-like-editor-layout {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+.diary-panel .tableWrapper { max-width: none; overflow-x: visible; }
+.diary-panel .tiptap-toolbar[data-variant='fixed'] {
+  width: auto;
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+/* 面板内正文贴近左侧分割线，剩余空间给右侧目录 */
+.diary-panel .notion-like-editor-layout {
+  grid-template-columns: [full-start] 8px [content-start] minmax(0, 1fr) [content-end] 8px [full-end];
+}
+.diary-panel .notion-like-editor-layout.toc-right.has-toc {
+  grid-template-columns: [full-start] 8px [content-start] minmax(0, 1fr) [content-end] minmax(132px, 220px) [full-end];
+}
+.diary-panel .notion-like-editor-layout.toc-left.has-toc {
+  grid-template-columns: [full-start] minmax(132px, 220px) [content-start] minmax(0, 1fr) [content-end] 8px [full-end];
+}
+
+/* 面板底部兜底：字数栏不再占据文档流，横向滚动条贴住面板下边框 */
+.diary-panel { height: 100% !important; max-height: none !important; }
+.diary-panel-body { overflow: hidden !important; padding: 0 0 8px !important; }
+.diary-panel .editor-card-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+  padding: 0;
+  overflow: hidden;
+}
+.diary-panel .editor-card-body > .diary-panel-body { flex: 1; min-height: 0; }
+.diary-panel .diary-panel-foot {
+  position: static !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  flex: none !important;
+  height: 28px !important;
+  padding: 0 4px !important;
+  border: none !important;
+  background: transparent !important;
+}
 .view { animation: fade .22s ease; }
-@keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* 只用 opacity：transform 会让 .view 成为 fixed 的包含块，导致表格把手坐标系偏移 */
+@keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 
 .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 24px; flex-wrap: wrap; }
 .page-title { font-family: var(--font-display); font-size: 26px; font-weight: 750; letter-spacing: -0.02em; margin: 0; line-height: 1.2; }
@@ -359,6 +484,25 @@ body {
 .tag-filter-btn:hover { background: var(--surface-2); }
 .tag-filter-btn.active { border-color: var(--accent); color: var(--accent-strong); }
 .tag-filter-btn svg { width: 16px; height: 16px; color: var(--faint); flex: none; }
+.tag-filter-btn.icon-only { width: 36px; padding: 0; justify-content: center; position: relative; }
+.tag-filter-btn.icon-only .tag-filter-count {
+  position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px;
+  padding: 0 3px; font-size: 10px; line-height: 15px;
+}
+.icon-dot {
+  position: absolute; top: 6px; right: 6px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+}
+.tag-visibility-btn {
+  width: 42px; height: 42px; flex: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: 11px; color: var(--faint); cursor: pointer;
+  transition: background .15s ease, border-color .15s ease, color .15s ease;
+}
+.tag-visibility-btn:hover { background: var(--surface-2); }
+.tag-visibility-btn.active { border-color: var(--accent); color: var(--accent-strong); }
+.tag-visibility-btn svg { width: 16px; height: 16px; }
 .tag-filter-count {
   display: inline-flex; align-items: center; justify-content: center;
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
@@ -429,17 +573,98 @@ body {
 }
 .filter-summary-clear:hover { background: var(--surface); color: var(--fg); }
 .diary-layout { display: grid; grid-template-columns: 1fr 260px; gap: 22px; align-items: start; }
+.diary-layout--panel {
+  grid-template-columns: minmax(280px, var(--list-width, 50%)) 7px minmax(0, 1fr);
+  gap: 0 12px;
+}
+.diary-main-col { min-width: 0; max-width: 100%; }
+.diary-splitter {
+  align-self: stretch;
+  width: 7px;
+  cursor: col-resize;
+  position: relative;
+  touch-action: none;
+}
+.diary-splitter::before { display: none; }
+.diary-vline {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  pointer-events: none;
+  z-index: 50;
+  transition: width .12s ease, background .12s ease, transform .12s ease, opacity .12s ease;
+}
+.diary-vline.hot {
+  width: 6px;
+  background: var(--accent);
+  opacity: 0.35;
+  transform: translateX(-2.5px);
+}
+.entry-card--active { border-color: var(--accent); box-shadow: var(--shadow-md); }
+
+/* 中间列变窄后，工具栏整体缩小一号 */
+.main--diary .toolbar { gap: 8px; margin-bottom: 12px; }
+.main--diary .search { height: 36px; padding: 0 10px; border-radius: 9px; }
+.main--diary .search svg { width: 15px; height: 15px; }
+.main--diary .search input { font-size: 13px; }
+.main--diary .tag-filter-btn {
+  height: 36px; padding: 0 10px; gap: 6px; border-radius: 9px; font-size: 12.5px;
+}
+.main--diary .tag-filter-btn svg { width: 14px; height: 14px; }
+.main--diary .sort-select { height: 36px; padding: 0 8px 0 8px; border-radius: 9px; gap: 2px; }
+.main--diary .sort-select select { font-size: 12.5px; padding: 0 6px 0 0; }
+.main--diary .sort-select svg { width: 14px; height: 14px; }
+.main--diary .tag-visibility-btn { width: 36px; height: 36px; border-radius: 9px; }
 .entry-list { display: flex; flex-direction: column; gap: 12px; }
 .load-more-sentinel { padding: 18px; text-align: center; color: var(--faint); font-size: 13px; }
 .load-more-end { padding: 18px; text-align: center; color: var(--faint); font-size: 13px; }
 .entry-card {
-  padding: 16px 18px; cursor: pointer;
+  padding: 10px 18px; cursor: pointer;
   transition: box-shadow .16s ease, transform .16s ease, border-color .16s ease;
 }
+.entry-card { position: relative; }
+.entry-card .entry-top { padding-right: 32px; }
+.entry-card-menu { position: absolute; top: 10px; right: 10px; z-index: 20; }
+.entry-card--menu { z-index: 40; overflow: visible; }
+.entry-card--menu:hover { transform: none; }
+.entry-card--pinned {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.entry-pin {
+  position: absolute;
+  top: 12px;
+  right: 42px;
+  display: inline-flex;
+  color: var(--accent-strong);
+}
+.entry-pin svg { width: 14px; height: 14px; }
+.entry-menu-btn {
+  width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
+  border: 1px solid var(--border-strong); border-radius: 7px;
+  background: var(--surface); color: var(--muted); cursor: pointer;
+}
+.entry-menu-btn:hover { background: var(--surface-2); color: var(--fg); }
+.entry-menu-btn svg { width: 14px; height: 14px; }
+.entry-menu-dropdown {
+  position: absolute; top: 32px; right: 0; min-width: 120px;
+  padding: 4px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 9px; box-shadow: var(--shadow-md); z-index: 70;
+}
+.entry-menu-dropdown button {
+  display: block; width: 100%; text-align: left; padding: 7px 10px;
+  border: none; background: transparent; border-radius: 6px;
+  font-family: inherit; font-size: 13px; color: var(--fg); cursor: pointer;
+}
+.entry-menu-dropdown button:hover { background: var(--surface-2); }
 .entry-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-md); border-color: var(--border-strong); }
 .entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .entry-title { font-size: 16px; font-weight: 650; margin: 0; }
 .entry-date { color: var(--faint); font-size: 13px; white-space: nowrap; }
+.entry-date-row { display: flex; justify-content: flex-end; margin-top: 2px; }
+.entry-date-row .entry-date { line-height: 1.2; }
 .entry-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .entry-top--untitled { align-items: center; }
 .entry-tags-inline { margin-top: 0; }
@@ -845,6 +1070,8 @@ input[type="range"] { accent-color: var(--accent); width: 180px; }
   .nav-item { justify-content: center; padding: 11px; }
   .nav-item.active::before { left: -10px; }
   .diary-layout { grid-template-columns: 1fr; }
+  .diary-layout.diary-layout--panel { grid-template-columns: 1fr; }
+  .diary-splitter { display: none; }
   .stats { position: static; }
   .main { padding: 24px 20px 60px; }
 }

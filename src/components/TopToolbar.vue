@@ -8,9 +8,14 @@ import DropdownMenu from './ui/DropdownMenu.vue'
 import ColorPopover from './ui/ColorPopover.vue'
 import LinkPopover from './ui/LinkPopover.vue'
 import { pickAndInsertImage } from '../lib/editor'
+import TableTriggerButton from './table/TableTriggerButton.vue'
 
 const editor = injectEditor()
 const tick = useEditorTick(editor)
+
+defineProps<{
+  actionsTarget?: string
+}>()
 
 function isActive(name: string, attrs?: Record<string, unknown>) {
   tick.value
@@ -175,6 +180,7 @@ const toggleEditorDark = inject('toggleEditorDark', () => {})
     <div class="tiptap-toolbar-group">
       <LinkPopover icon="link" label="Link" />
       <ToolbarButton icon="image" label="Insert image" @click="insertImage" />
+      <TableTriggerButton />
     </div>
 
     <span class="tt-separator" />
@@ -192,19 +198,21 @@ const toggleEditorDark = inject('toggleEditorDark', () => {})
 
     <span class="tt-separator" />
 
-    <div class="tiptap-toolbar-group tiptap-toolbar-actions">
-      <ToolbarButton
-        :icon="tocSide === 'left' ? 'panel-left' : 'panel-right'"
-        :label="tocSide === 'left' ? 'TOC: left (click to move right)' : 'TOC: right (click to move left)'"
-        @click="toggleTocPosition"
-      />
-      <ToolbarButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
-      <ToolbarButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
-      <ToolbarButton
-        :icon="editorDark ? 'sun' : 'moon'"
-        :label="editorDark ? 'Light mode (editor only)' : 'Dark mode (editor only)'"
-        @click="toggleEditorDark"
-      />
-    </div>
+    <Teleport :to="actionsTarget || 'body'" :disabled="!actionsTarget">
+      <div class="tiptap-toolbar-group tiptap-toolbar-actions">
+        <ToolbarButton
+          :icon="tocSide === 'left' ? 'panel-left' : 'panel-right'"
+          :label="tocSide === 'left' ? 'TOC: left (click to move right)' : 'TOC: right (click to move left)'"
+          @click="toggleTocPosition"
+        />
+        <ToolbarButton icon="undo" label="Undo" :disabled="!canUndo" @click="undo" />
+        <ToolbarButton icon="redo" label="Redo" :disabled="!canRedo" @click="redo" />
+        <ToolbarButton
+          :icon="editorDark ? 'sun' : 'moon'"
+          :label="editorDark ? 'Light mode (editor only)' : 'Dark mode (editor only)'"
+          @click="toggleEditorDark"
+        />
+      </div>
+    </Teleport>
   </div>
 </template>
