@@ -234,6 +234,7 @@ body {
 .diary-panel-empty svg { width: 28px; height: 28px; }
 .diary-panel-empty p { margin: 0; font-size: 13px; }
 .diary-panel .notion-like-editor-wrapper { background: var(--tt-bg-color); height: 100%; }
+.diary-panel .tiptap.ProseMirror { padding-left: 3.5rem; }
 .diary-panel .notion-like-editor-layout {
   flex: 1;
   min-height: 0;
@@ -598,7 +599,7 @@ body {
 }
 .entry-card { position: relative; }
 .entry-card .entry-top { padding-right: 32px; }
-.entry-card-menu { position: absolute; top: 10px; right: 10px; z-index: 20; }
+.entry-card-menu { position: absolute; top: 4px; right: 6px; z-index: 20; }
 .entry-card--menu { z-index: 40; overflow: visible; }
 .entry-card--menu:hover { transform: none; }
 .entry-card--pinned {
@@ -615,8 +616,8 @@ body {
 .entry-pin svg { width: 14px; height: 14px; }
 .entry-menu-btn {
   width: 26px; height: 26px; display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border-strong); border-radius: 7px;
-  background: var(--surface); color: var(--muted); cursor: pointer;
+  border: none; border-radius: 7px;
+  background: transparent; color: var(--faint); cursor: pointer;
 }
 .entry-menu-btn:hover { background: var(--surface-2); color: var(--fg); }
 .entry-menu-btn svg { width: 14px; height: 14px; }

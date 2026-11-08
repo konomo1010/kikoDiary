@@ -25,7 +25,7 @@ export const BlockHandleExtension = DragHandle.configure({
         const dragHandleHeight = rects.floating.height
         const crossAxis = nodeHeight / 2 - dragHandleHeight / 2
         return {
-          mainAxis: 16,
+          mainAxis: 8,
           // Tall blocks (> 40px) stay top-aligned; short blocks are vertically centred.
           crossAxis: nodeHeight > 40 ? 0 : crossAxis,
         }
