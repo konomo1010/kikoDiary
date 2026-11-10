@@ -476,6 +476,10 @@ async function duplicateDiary(id) {
 async function saveDiaryTags(id, tags) {
   const d = state.diaries.find((x) => x.id === id)
   if (!d) return false
+  if (!(d.title || '').trim() && !tags.length) {
+    toast('关闭标题后请至少选择一个标签', 'danger')
+    return false
+  }
   try {
     const body = await dbApi.getBody(id)
     const content = normalizeContent(body)
@@ -542,6 +546,11 @@ function openTagModal() {
 }
 
 function closeTagModal() {
+  // 关闭标题时至少需要一个标签；不满足则保持弹窗打开，让用户继续选择
+  if (!state.hasTitle && !state.activeTags.length) {
+    toast('关闭标题后请至少选择一个标签', 'danger')
+    return
+  }
   tagModal.open = false
 }
 
@@ -623,6 +632,11 @@ function renameTag(oldName) {
 function deleteTag(name) {
   if (isUntaggedTag(name)) {
     toast(`「${UNTAGGED_TAG}」是系统标签，不能删除`, 'danger')
+    return
+  }
+  const used = state.diaries.filter((d) => (d.tags || []).includes(name)).length
+  if (used > 0) {
+    toast(`标签「${name}」正被 ${used} 篇日记使用，无法删除`, 'danger')
     return
   }
   openModal({

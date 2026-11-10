@@ -5,7 +5,10 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "dialog:default",
+    "opener:default",
     "updater:default"
   ]
 }

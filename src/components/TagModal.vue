@@ -43,7 +43,7 @@ const filteredTags = computed(() => {
             @click="toggleTag(t)"
           >
             <span class="mark"><Icon v-if="state.activeTags.includes(t)" name="check" /></span>
-            <span class="n">{{ t }}</span>
+            <span class="n" :title="t">{{ t }}</span>
             <span class="cnt">{{ tagCount(t) }} 篇</span>
           </button>
         </div>

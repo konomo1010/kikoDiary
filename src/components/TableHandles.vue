@@ -1126,7 +1126,7 @@ function toggleCellMenu() {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 40;
+  z-index: 60;
 }
 .table-handle-floating,
 .table-extend-btn,

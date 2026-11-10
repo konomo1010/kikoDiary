@@ -250,6 +250,10 @@ function openInlineTitle(d) {
   })
 }
 
+function cardTags(d) {
+  return state.settings.showListTags ? (d.tags || []) : []
+}
+
 const cardMenuId = ref(null)
 
 function toggleCardMenu(id) {
@@ -638,7 +642,7 @@ const stats = computed(() => computeStats())
                 @click="toggleDraftTag(t)"
               >
                 <span class="mark"><Icon v-if="draftTags.includes(t)" name="check" /></span>
-                <span class="n">{{ t }}</span>
+                <span class="n" :title="t">{{ t }}</span>
                 <span class="cnt">{{ tagCount(t) }} 篇</span>
               </button>
             </div>
@@ -740,15 +744,17 @@ const stats = computed(() => computeStats())
             <div v-else class="card entry-card" :class="{ 'entry-card--active': panelOpen && panelId === d.id, 'entry-card--menu': cardMenuId === d.id, 'entry-card--pinned': (state.settings.pinnedDiaryIds || []).includes(d.id) }" @click="openDiaryInPanel(d)" @dblclick.stop="openInlineTitle(d)">
               <div class="entry-top" :class="{ 'entry-top--untitled': !(d.title && d.title.trim()) }">
                 <h3 v-if="d.title && d.title.trim()" class="entry-title">{{ d.title }}</h3>
-                <div v-else-if="state.settings.showListTags" class="entry-tags entry-tags-inline">
+                <div v-else-if="(d.tags || []).length" class="entry-tags entry-tags-inline">
                   <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
                 </div>
+                <h3 v-else class="entry-title entry-title--empty">无标题日记</h3>
+                <span v-if="!(d.title && d.title.trim())" class="entry-date entry-date--inline">{{ fmtDate(d.date) }}</span>
               </div>
               <div v-if="state.settings.showListExcerpt && d.excerpt" class="entry-excerpt">{{ d.excerpt }}</div>
               <div v-if="state.settings.showListTags && d.title && d.title.trim()" class="entry-tags">
-                <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
+                <span v-for="t in cardTags(d)" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
               </div>
-              <div class="entry-date-row">
+              <div v-if="d.title && d.title.trim()" class="entry-date-row">
                 <span class="entry-date">{{ fmtDate(d.date) }}</span>
               </div>
               <span v-if="(state.settings.pinnedDiaryIds || []).includes(d.id)" class="entry-pin" title="已置顶">

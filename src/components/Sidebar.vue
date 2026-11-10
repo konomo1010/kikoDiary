@@ -17,7 +17,7 @@ function readWidth() {
     const v = Number(localStorage.getItem(WIDTH_KEY))
     if (Number.isFinite(v) && v >= MIN_W && v <= MAX_W) return v
   } catch (e) { /* ignore */ }
-  return 232
+  return 260
 }
 
 const width = ref(readWidth())

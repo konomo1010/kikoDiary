@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { NodeSelection } from '@tiptap/pm/state'
-import { CellSelection } from '@tiptap/pm/tables'
 import type { Editor } from '@tiptap/core'
 import { injectEditor } from '../composables/useEditor'
 import ToolbarButton from './ui/ToolbarButton.vue'
@@ -27,16 +26,12 @@ function update() {
     return
   }
   const { selection } = e.state
-  // 多选表格单元格时不显示浮动文字工具栏，避免遮挡表格。
-  if (selection instanceof CellSelection) {
+  // 只在选中图片时显示图片工具栏；普通文字选区不再弹出浮动工具栏。
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'image') {
     visible.value = false
     return
   }
-  const { from, to, empty } = selection
-  if (empty || from === to) {
-    visible.value = false
-    return
-  }
+  const { from, to } = selection
   const start = e.view.coordsAtPos(from)
   const end = e.view.coordsAtPos(to)
   left.value = (start.left + end.right) / 2

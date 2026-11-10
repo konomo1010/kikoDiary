@@ -1509,3 +1509,5 @@ body.table-menu-open .floating-toolbar {
 [data-tt-theme='dark'] .tiptap.ProseMirror .hljs-params {
   color: #7ee787;
 }
+
+.notion-like-editor-wrapper.link-modifier .tiptap.ProseMirror a[href] { cursor: pointer; }

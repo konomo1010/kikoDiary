@@ -161,9 +161,9 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="view editor-view">
-    <Breadcrumb :resolve-nav="goCrumb" />
-    <div class="editor-topbar">
+    <div class="editor-crumb-row">
       <button class="btn btn-icon btn-ghost" title="返回" @click="onBack"><Icon name="back" /></button>
+      <Breadcrumb :resolve-nav="goCrumb" />
       <div class="spacer"></div>
       <button v-if="!isNew" class="btn btn-danger-ghost" @click="deleteDiary(currentDiary.id)"><Icon name="trash" /> 删除</button>
       <button class="btn btn-primary" @click="onSave">保存日记</button>

@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from 'vue'
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { Editor } from '@tiptap/core'
+import { openUrl } from '@tauri-apps/plugin-opener'
 import TopToolbar from './TopToolbar.vue'
 import FloatingToolbar from './FloatingToolbar.vue'
 import TocSidebar from './TocSidebar.vue'
 import EmojiPicker from './EmojiPicker.vue'
+import ImageViewer from './ImageViewer.vue'
 import TableHandles from './TableHandles.vue'
 import {
   createEditorExtensions,
@@ -30,6 +32,10 @@ const hasToc = computed(() => tocHasItems.value && tocFits.value)
 // 高 DPI 笔记本缩放到 200%~250% 后，全屏视口往往不足 1280 CSS px，
 // 用视口宽度判断会让目录永远不出现。
 const layoutEl = ref<HTMLElement | null>(null)
+const wrapperEl = ref<HTMLElement | null>(null)
+const viewerOpen = ref(false)
+const viewerSrc = ref('')
+const viewerAlt = ref('')
 let layoutObserver: ResizeObserver | null = null
 
 function measureLayout(width: number) {
@@ -47,7 +53,56 @@ onMounted(() => {
 
   // Mod+/ 触发 slash 菜单（与 my-app 一致）
   document.addEventListener('keydown', onSlashShortcut)
+  document.addEventListener('click', onLinkClick, true)
+  document.addEventListener('dblclick', onImageDblClick, true)
+  document.addEventListener('keydown', onModifierKey, true)
+  document.addEventListener('keyup', onModifierKey, true)
+  window.addEventListener('blur', onWindowBlur)
 })
+
+/** Ctrl/Cmd + 点击正文链接：用系统浏览器打开；普通点击只编辑，不导航 */
+function onLinkClick(e: MouseEvent) {
+  const target = e.target
+  if (!(target instanceof Element)) return
+  const link = target.closest('a[href]')
+  if (!link || !link.closest('.tiptap.ProseMirror')) return
+  const href = link.getAttribute('href')
+  if (!href) return
+  // 普通点击不跳转，但保留编辑器的光标/选区处理
+  if (!(e.ctrlKey || e.metaKey)) {
+    e.preventDefault()
+    return
+  }
+  e.preventDefault()
+  e.stopPropagation()
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+  if (isTauri) openUrl(href).catch((err) => console.error('[editor] open link failed', err))
+  else window.open(href, '_blank', 'noopener')
+}
+
+/** 按住 Ctrl/Cmd 时让正文链接显示手型光标，松开恢复 */
+function setLinkModifier(held: boolean) {
+  wrapperEl.value?.classList.toggle('link-modifier', held)
+}
+
+function onModifierKey(e: KeyboardEvent) {
+  if (e.key === 'Control' || e.key === 'Meta') setLinkModifier(e.type === 'keydown')
+}
+
+function onWindowBlur() {
+  setLinkModifier(false)
+}
+
+/** 双击正文图片：打开全屏图片查看器 */
+function onImageDblClick(e: MouseEvent) {
+  const target = e.target
+  if (!(target instanceof HTMLImageElement)) return
+  if (!target.closest('.tiptap.ProseMirror')) return
+  e.preventDefault()
+  viewerSrc.value = target.currentSrc || target.src
+  viewerAlt.value = target.alt || ''
+  viewerOpen.value = true
+}
 
 /** Mod+/ 或 Cmd+/：在当前光标位置插入 / 触发 slash 菜单 */
 function onSlashShortcut(e: KeyboardEvent) {
@@ -161,13 +216,18 @@ onBeforeUnmount(() => {
   layoutObserver?.disconnect()
   layoutObserver = null
   document.removeEventListener('keydown', onSlashShortcut)
+  document.removeEventListener('click', onLinkClick, true)
+  document.removeEventListener('dblclick', onImageDblClick, true)
+  document.removeEventListener('keydown', onModifierKey, true)
+  document.removeEventListener('keyup', onModifierKey, true)
+  window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('kiko:open-emoji-picker', onOpenEmojiPicker)
   editor.value?.destroy()
 })
 </script>
 
 <template>
-  <div class="notion-like-editor-wrapper" :data-tt-theme="editorDark ? 'dark' : 'light'">
+  <div ref="wrapperEl" class="notion-like-editor-wrapper" :data-tt-theme="editorDark ? 'dark' : 'light'">
     <TopToolbar />
     <div ref="layoutEl" class="notion-like-editor-layout" :class="[`toc-${tocSide}`, { 'has-toc': hasToc }]">
       <div class="notion-like-editor-content">
@@ -180,5 +240,6 @@ onBeforeUnmount(() => {
       <TableHandles />
     </div>
     <EmojiPicker :open="emojiOpen" @select="onPickEmoji" @close="onCloseEmojiPicker" />
+    <ImageViewer :open="viewerOpen" :src="viewerSrc" :alt="viewerAlt" @close="viewerOpen = false" />
   </div>
 </template>
