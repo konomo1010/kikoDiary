@@ -144,7 +144,11 @@ const editor = useEditor({
   editorProps: {
     attributes: { class: 'notion-like-editor' },
     handlePaste: (_view, event) => {
-      const files = event.clipboardData?.files
+      const clipboard = event.clipboardData
+      if (!clipboard) return false
+      // Excel/网页复制时常同时带图片文件，有文本或 HTML 时优先按文本粘贴
+      if (clipboard.types.includes('text/html') || clipboard.types.includes('text/plain')) return false
+      const files = clipboard.files
       if (!files || files.length === 0) return false
       const inserted = insertImageFiles(editorRef.value, files)
       if (inserted) event.preventDefault()

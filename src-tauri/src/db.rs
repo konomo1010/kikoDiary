@@ -421,6 +421,24 @@ pub fn get_data_dir() -> Result<String, String> {
     Ok(data_root()?.to_string_lossy().to_string())
 }
 
+#[tauri::command]
+pub fn data_dir_size(state: State<'_, Db>) -> Result<u64, String> {
+    fn walk(dir: &Path) -> u64 {
+        let Ok(entries) = fs::read_dir(dir) else { return 0 };
+        let mut total = 0;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                total += walk(&path);
+            } else if let Ok(meta) = entry.metadata() {
+                total += meta.len();
+            }
+        }
+        total
+    }
+    Ok(walk(&state.root()))
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DataDirInfo {

@@ -65,6 +65,7 @@ pub fn run() {
             db::load_config,
             db::save_config,
             db::get_data_dir,
+            db::data_dir_size,
             db::set_data_dir,
             db::inspect_data_dir,
             db::write_text_file,

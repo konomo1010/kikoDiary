@@ -32,6 +32,10 @@ export function getDataDir() {
   return invoke('get_data_dir')
 }
 
+export function getDataDirSize() {
+  return invoke('data_dir_size')
+}
+
 export function setDataDir(path, mode = 'migrate') {
   return invoke('set_data_dir', { path, mode })
 }

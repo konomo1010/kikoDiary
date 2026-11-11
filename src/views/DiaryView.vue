@@ -11,6 +11,28 @@ import Breadcrumb from '../components/Breadcrumb.vue'
 import EditorTitleCard from '../components/EditorTitleCard.vue'
 import DiaryEditorPanel from '../components/DiaryEditorPanel.vue'
 
+const dataSize = ref(0)
+
+function fmtBytes(bytes) {
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = bytes
+  let i = 0
+  while (value >= 1024 && i < units.length - 1) {
+    value /= 1024
+    i += 1
+  }
+  return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`
+}
+
+async function loadDataSize() {
+  try {
+    dataSize.value = await dbApi.getDataDirSize()
+  } catch (e) {
+    console.error('[diary] load data size failed', e)
+  }
+}
+
 function toggleSort() {
   sortBy.value = sortBy.value === 'time-desc' ? 'time-asc' : 'time-desc'
 }
@@ -61,6 +83,9 @@ const tagPanelOpen = ref(false)
 const tagSearch = ref('')
 const draftTags = ref([])
 const tagFilterRef = ref(null)
+const tagButtonRef = ref(null)
+const tagPopoverRef = ref(null)
+const tagPopoverStyle = ref({})
 
 const allTags = computed(() => tagListWithUntagged(state.diaries))
 
@@ -93,6 +118,25 @@ function clearDraftTags() {
   draftTags.value = []
 }
 
+function popoverStyle(btnEl, popEl, minWidth, maxWidth) {
+  if (!btnEl || !popEl) return {}
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const measured = popEl.offsetWidth
+  const width = Math.min(Math.max(measured, minWidth), maxWidth, vw - 24)
+  const rect = btnEl.getBoundingClientRect()
+  const height = popEl.offsetHeight
+  const left = Math.min(Math.max(8, rect.left), Math.max(8, vw - width - 8))
+  let top = rect.bottom + 8
+  if (top + height > vh - 8) top = Math.max(8, rect.top - height - 8)
+  return {
+    left: `${left}px`,
+    top: `${top}px`,
+    width: `${width}px`,
+    maxHeight: `${vh - 16}px`,
+  }
+}
+
 function toggleTagPanel() {
   if (tagPanelOpen.value) {
     cancelTagPanel()
@@ -100,6 +144,9 @@ function toggleTagPanel() {
   }
   draftTags.value = [...filterTags.value]
   tagPanelOpen.value = true
+  nextTick(() => {
+    tagPopoverStyle.value = popoverStyle(tagButtonRef.value, tagPopoverRef.value, 280, 440)
+  })
 }
 
 /* 完成：应用草稿 */
@@ -126,6 +173,9 @@ const datePanelOpen = ref(false)
 const draftFrom = ref('')
 const draftTo = ref('')
 const dateFilterRef = ref(null)
+const dateButtonRef = ref(null)
+const datePopoverRef = ref(null)
+const datePopoverStyle = ref({})
 
 const dateActive = computed(() => !!(dateFrom.value || dateTo.value))
 const dateButtonText = computed(() =>
@@ -149,6 +199,9 @@ function toggleDatePanel() {
   draftFrom.value = dateFrom.value
   draftTo.value = dateTo.value
   datePanelOpen.value = true
+  nextTick(() => {
+    datePopoverStyle.value = popoverStyle(dateButtonRef.value, datePopoverRef.value, 330, 330)
+  })
 }
 
 function applyDatePreset(key) {
@@ -183,6 +236,7 @@ function clearAllFilters() {
 /* ---- right editor panel ---- */
 const panelRef = ref(null)
 const panelId = ref(null)
+const listScrollRef = ref(null)
 const inlineTitleId = ref(null)
 const panelOpen = computed({
   get: () => !!state.settings.diaryPanelOpen,
@@ -212,6 +266,38 @@ function withPanelGuard(action) {
       if (ok !== false) action()
     },
     onSecondary: action,
+  })
+}
+
+function focusDiaryList() {
+  listScrollRef.value?.focus({ preventScroll: true })
+}
+
+function onCardClick(d) {
+  focusDiaryList()
+  openDiaryInPanel(d)
+}
+
+function onListKeydown(event) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+  const target = event.target
+  if (target instanceof HTMLElement && target.closest('input, textarea, button, [contenteditable="true"]')) return
+  const items = list.value
+  if (!items.length) return
+  event.preventDefault()
+  const dir = event.key === 'ArrowDown' ? 1 : -1
+  const current = items.findIndex((d) => d.id === panelId.value)
+  let next = current < 0 ? (dir > 0 ? 0 : items.length - 1) : current + dir
+  next = Math.max(0, Math.min(items.length - 1, next))
+  if (next === current) return
+  if (!panelOpen.value) setDiaryPanelOpen(true)
+  if (next >= visibleCount.value) visibleCount.value = Math.min(items.length, next + 1)
+  const diary = items[next]
+  openDiaryInPanel(diary)
+  nextTick(() => {
+    listScrollRef.value
+      ?.querySelector(`[data-diary-id="${diary.id}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
   })
 }
 
@@ -419,6 +505,7 @@ function updateLineX() {
 watch([panelOpen, listWidth], () => nextTick(updateLineX))
 
 function startSplitDrag(event) {
+  closeFilterPopovers()
   event.preventDefault()
   splitActive.value = true
   const layout = event.currentTarget?.parentElement
@@ -448,10 +535,18 @@ function startSplitDrag(event) {
 }
 
 function onDocClick(e) {
-  if (tagPanelOpen.value && tagFilterRef.value && !tagFilterRef.value.contains(e.target)) {
+  if (
+    tagPanelOpen.value &&
+    !tagFilterRef.value?.contains(e.target) &&
+    !tagPopoverRef.value?.contains(e.target)
+  ) {
     cancelTagPanel()
   }
-  if (datePanelOpen.value && dateFilterRef.value && !dateFilterRef.value.contains(e.target)) {
+  if (
+    datePanelOpen.value &&
+    !dateFilterRef.value?.contains(e.target) &&
+    !datePopoverRef.value?.contains(e.target)
+  ) {
     datePanelOpen.value = false
   }
   if (cardMenuId.value != null && e.target instanceof Element && !e.target.closest('.entry-card-menu')) {
@@ -537,9 +632,16 @@ watch(sentinelRef, (el) => {
   observer.observe(el)
 })
 
+function closeFilterPopovers() {
+  tagPanelOpen.value = false
+  datePanelOpen.value = false
+}
+
 onMounted(() => {
+  loadDataSize()
   document.addEventListener('click', onDocClick)
   window.addEventListener('resize', updateLineX)
+  window.addEventListener('resize', closeFilterPopovers)
   window.addEventListener('kiko:back', onMouseBack)
   // 回到列表时恢复搜索：输入框保留关键字，结果也必须一起恢复
   if (state.search.trim()) runSearchNow()
@@ -562,6 +664,7 @@ onBeforeUnmount(() => {
   state.diaryVisible = visibleCount.value
   document.removeEventListener('click', onDocClick)
   window.removeEventListener('resize', updateLineX)
+  window.removeEventListener('resize', closeFilterPopovers)
   window.removeEventListener('kiko:back', onMouseBack)
   layoutResizeObserver?.disconnect()
   layoutResizeObserver = null
@@ -612,6 +715,7 @@ const stats = computed(() => computeStats())
 
       <div class="tag-filter" ref="tagFilterRef">
         <button
+          ref="tagButtonRef"
           type="button"
           class="tag-filter-btn icon-only"
           :class="{ active: filterTags.length > 0 }"
@@ -623,7 +727,14 @@ const stats = computed(() => computeStats())
           <span v-if="filterTags.length" class="tag-filter-count">{{ filterTags.length }}</span>
         </button>
 
-        <div v-if="tagPanelOpen" class="tag-filter-popover" @click.stop>
+        <Teleport to="body">
+          <div
+            v-if="tagPanelOpen"
+            ref="tagPopoverRef"
+            class="tag-filter-popover"
+            :style="tagPopoverStyle"
+            @click.stop
+          >
           <div class="tag-modal-search">
             <Icon name="search" />
             <input v-model="tagSearch" type="text" placeholder="搜索标签…">
@@ -651,11 +762,13 @@ const stats = computed(() => computeStats())
             <button type="button" class="btn btn-ghost btn-sm" @click="clearDraftTags">清除</button>
             <button type="button" class="btn btn-primary btn-sm" @click="closeTagPanel">完成</button>
           </div>
-        </div>
+          </div>
+        </Teleport>
       </div>
 
       <div class="tag-filter" ref="dateFilterRef">
         <button
+          ref="dateButtonRef"
           type="button"
           class="tag-filter-btn icon-only"
           :class="{ active: dateActive }"
@@ -667,7 +780,14 @@ const stats = computed(() => computeStats())
           <span v-if="dateActive" class="icon-dot" />
         </button>
 
-        <div v-if="datePanelOpen" class="tag-filter-popover date-filter-popover" @click.stop>
+        <Teleport to="body">
+          <div
+            v-if="datePanelOpen"
+            ref="datePopoverRef"
+            class="tag-filter-popover date-filter-popover"
+            :style="datePopoverStyle"
+            @click.stop
+          >
           <div class="date-filter-row">
             <label>
               <span>开始日期</span>
@@ -691,7 +811,8 @@ const stats = computed(() => computeStats())
             <button type="button" class="btn btn-ghost btn-sm" @click="clearDraftDates">清除</button>
             <button type="button" class="btn btn-primary btn-sm" @click="applyDates">完成</button>
           </div>
-        </div>
+          </div>
+        </Teleport>
       </div>
 
       <button
@@ -715,7 +836,12 @@ const stats = computed(() => computeStats())
       </button>
     </div>
 
-    <div class="diary-list-scroll">
+    <div
+      ref="listScrollRef"
+      class="diary-list-scroll"
+      tabindex="0"
+      @keydown="onListKeydown"
+    >
     <div v-if="filterActive" class="filter-summary">
       <span v-if="searchActive" class="filter-summary-item">
         <Icon name="search" />
@@ -741,25 +867,21 @@ const stats = computed(() => computeStats())
               v-model:title="state.panelTitle"
               v-model:date="state.panelDate"
             />
-            <div v-else class="card entry-card" :class="{ 'entry-card--active': panelOpen && panelId === d.id, 'entry-card--menu': cardMenuId === d.id, 'entry-card--pinned': (state.settings.pinnedDiaryIds || []).includes(d.id) }" @click="openDiaryInPanel(d)" @dblclick.stop="openInlineTitle(d)">
+            <div v-else class="card entry-card" :data-diary-id="d.id" :class="{ 'entry-card--active': panelOpen && panelId === d.id, 'entry-card--menu': cardMenuId === d.id, 'entry-card--pinned': (state.settings.pinnedDiaryIds || []).includes(d.id) }" @click="onCardClick(d)" @dblclick.stop="openInlineTitle(d)">
               <div class="entry-top" :class="{ 'entry-top--untitled': !(d.title && d.title.trim()) }">
                 <h3 v-if="d.title && d.title.trim()" class="entry-title">{{ d.title }}</h3>
                 <div v-else-if="(d.tags || []).length" class="entry-tags entry-tags-inline">
                   <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
                 </div>
                 <h3 v-else class="entry-title entry-title--empty">无标题日记</h3>
-                <span v-if="!(d.title && d.title.trim())" class="entry-date entry-date--inline">{{ fmtDate(d.date) }}</span>
               </div>
               <div v-if="state.settings.showListExcerpt && d.excerpt" class="entry-excerpt">{{ d.excerpt }}</div>
               <div v-if="state.settings.showListTags && d.title && d.title.trim()" class="entry-tags">
                 <span v-for="t in cardTags(d)" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
               </div>
-              <div v-if="d.title && d.title.trim()" class="entry-date-row">
+              <div class="entry-date-row">
                 <span class="entry-date">{{ fmtDate(d.date) }}</span>
               </div>
-              <span v-if="(state.settings.pinnedDiaryIds || []).includes(d.id)" class="entry-pin" title="已置顶">
-                <Icon name="pin" />
-              </span>
               <div class="entry-card-menu" @click.stop>
                 <button type="button" class="entry-menu-btn" title="更多操作" @click.stop="toggleCardMenu(d.id)">
                   <Icon name="chevDown" />
@@ -818,6 +940,7 @@ const stats = computed(() => computeStats())
         <div class="stat-row"><span class="k">活跃天数</span><span class="v">{{ stats.activeDays }}</span></div>
         <div class="stat-row"><span class="k">最早日期</span><span class="v" style="font-size:13px">{{ stats.earliest }}</span></div>
         <div class="stat-row"><span class="k">最后日期</span><span class="v" style="font-size:13px">{{ stats.latest }}</span></div>
+        <div class="stat-row"><span class="k">数据目录大小</span><span class="v" style="font-size:13px">{{ fmtBytes(dataSize) }}</span></div>
       </div>
     </div>
   </section>
