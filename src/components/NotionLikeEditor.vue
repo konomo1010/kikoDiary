@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch }
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { SearchHighlight, setSearchKeyword } from '../lib/searchHighlight'
 import TopToolbar from './TopToolbar.vue'
 import FloatingToolbar from './FloatingToolbar.vue'
 import TocSidebar from './TocSidebar.vue'
@@ -15,7 +16,7 @@ import {
 } from '../lib/editor'
 import { provideEditor } from '../composables/useEditor'
 import { TOC_MIN_LAYOUT_WIDTH, tocFits, tocHasItems, tocPosition } from '../composables/useLayout'
-import { editorDark, toggleEditorDark } from '../store'
+import { editorDark, state, toggleEditorDark } from '../store'
 
 const props = defineProps<{
   modelValue?: object | string | null
@@ -140,7 +141,7 @@ const editorRef = shallowRef<Editor | null>(null)
 const editor = useEditor({
   content: props.modelValue ?? '',
   autofocus: props.autofocus ?? false,
-  extensions: createEditorExtensions(),
+  extensions: [...createEditorExtensions(), SearchHighlight],
   editorProps: {
     attributes: { class: 'notion-like-editor' },
     handlePaste: (_view, event) => {
@@ -161,9 +162,18 @@ const editor = useEditor({
       if (inserted) event.preventDefault()
       return inserted
     },
+    handleKeyDown: (view, event) => {
+      if (event.key !== 'Tab') return false
+      const { $from } = view.state.selection
+      if ($from.parent.type.name !== 'codeBlock') return false
+      event.preventDefault()
+      view.dispatch(view.state.tr.insertText('  ', view.state.selection.from, view.state.selection.to))
+      return true
+    },
   },
   onUpdate: ({ editor: ed }) => {
     emit('update:modelValue', ed.getJSON())
+    scheduleHighlight()
   },
 })
 
@@ -192,11 +202,25 @@ watch(
         })
         .setContent(val ?? '', { emitUpdate: false })
         .run()
+      scheduleHighlight()
     }
   }
 )
 
 provideEditor(editor)
+
+/* ---- 搜索关键词正文高亮（ProseMirror Decoration，不改文档数据） ---- */
+let highlightRaf = 0
+function applyHighlights() {
+  setSearchKeyword(editor.value, state.search.trim())
+}
+function scheduleHighlight() {
+  if (highlightRaf) cancelAnimationFrame(highlightRaf)
+  highlightRaf = requestAnimationFrame(applyHighlights)
+}
+
+watch(() => state.search, scheduleHighlight)
+watch(editor, (ed) => { if (ed) scheduleHighlight() })
 
 // Emoji picker 状态
 const emojiOpen = ref(false)
@@ -226,6 +250,7 @@ onBeforeUnmount(() => {
   document.removeEventListener('keyup', onModifierKey, true)
   window.removeEventListener('blur', onWindowBlur)
   window.removeEventListener('kiko:open-emoji-picker', onOpenEmojiPicker)
+  if (highlightRaf) cancelAnimationFrame(highlightRaf)
   editor.value?.destroy()
 })
 </script>

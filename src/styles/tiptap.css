@@ -230,6 +230,18 @@
   background: var(--tt-selection-color);
 }
 
+/* 搜索关键词高亮（ProseMirror Decoration，不写入文档） */
+.kiko-search-highlight {
+  background: #FFFF00;
+  color: inherit;
+  border: none;
+  border-radius: 3px;
+  padding: 0 2px;
+}
+[data-tt-theme='dark'] .kiko-search-highlight {
+  background: rgba(255, 255, 0, 0.45);
+}
+
 .tiptap.ProseMirror p {
   margin: 0 0 0.5em;
 }

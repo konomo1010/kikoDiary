@@ -162,6 +162,8 @@ body {
 
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; padding: 34px 40px 60px; max-width: 1240px; margin: 0 auto; }
+/* 面包屑与顶部的间距对齐日记页（日记页 main--diary padding-top 为 8px） */
+.main:not(.main--diary) { padding-top: 8px; }
 .main.main--diary {
   max-width: none;
   margin: 0;
@@ -338,6 +340,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
+  margin-bottom: 18px;
 }
 .cal-main { padding: 22px 24px 20px; min-width: 0; }
 .cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -437,7 +440,7 @@ body {
   transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
 }
 .day-entry:hover { border-color: var(--border-strong); box-shadow: var(--shadow-md); transform: translateY(-1px); }
-.day-entry-title { font-size: 16px; font-weight: 650; color: var(--fg); }
+.day-entry-title { font-size: 14px; font-weight: 500; color: var(--fg); line-height: 1.45; }
 .day-entry-excerpt { font-size: 14px; color: var(--muted); line-height: 1.6; }
 .day-entry-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
 .day-empty {
@@ -655,6 +658,9 @@ body {
   background: color-mix(in srgb, #ec4899 8%, var(--surface));
   border-color: color-mix(in srgb, #ec4899 38%, var(--border));
 }
+.entry-card--pinned.entry-card--active {
+  background: color-mix(in srgb, #ec4899 8%, var(--surface));
+}
 .entry-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .entry-title { font-size: 14px; font-weight: 500; line-height: 1.45; margin: 0; }
 .entry-title--empty { color: var(--faint); font-weight: 500; }
@@ -748,6 +754,15 @@ body {
   border-bottom: 1px solid var(--border); margin-bottom: 12px;
 }
 .title-input::placeholder { color: var(--faint); }
+.title-input-wrap { position: relative; }
+.title-highlight-layer {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: 2px 0 8px; overflow: hidden; white-space: pre;
+  font-family: var(--font-body); font-size: 14px; font-weight: 500;
+  line-height: 1.45; color: var(--fg); pointer-events: none;
+}
+.title-input--highlight { color: transparent; caret-color: var(--fg); }
+.title-input--highlight::placeholder { color: transparent; }
 
 .editor-meta-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; }
 .editor-meta-row:last-child { margin-bottom: 0; }
@@ -943,6 +958,11 @@ body {
 }
 .editor-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 14px; }
 .word-count { color: var(--faint); font-size: 13px; }
+.editor-foot .foot-title {
+  flex: 1; text-align: center; color: var(--muted);
+  font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  padding: 0 12px;
+}
 
 /* ---------- Tags ---------- */
 .tags-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; }

@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS = {
   fontSize: 16,
   showListExcerpt: true,
   showListTags: true,
+  panelKeepScroll: false,
   diaryPanelOpen: false,
   diaryListWidth: 50,
   pinnedDiaryIds: [],
@@ -742,6 +743,11 @@ function setShowListTags(v) {
   persist()
 }
 
+function setPanelKeepScroll(v) {
+  state.settings.panelKeepScroll = !!v
+  persist()
+}
+
 function setDiaryPanelOpen(v) {
   state.settings.diaryPanelOpen = !!v
   persist()
@@ -1047,7 +1053,7 @@ export {
   // search / filter
   filterByTag,
   // settings
-  setTheme, setShowListExcerpt, setShowListTags, setDiaryPanelOpen, setDiaryListWidth, setCheckUpdatesOnStartup,
+  setTheme, setShowListExcerpt, setShowListTags, setPanelKeepScroll, setDiaryPanelOpen, setDiaryListWidth, setCheckUpdatesOnStartup,
   // update
   updateState, checkUpdate, installUpdateFlow, promptInstallUpdate,
   applyTheme, editorDark, toggleEditorDark,

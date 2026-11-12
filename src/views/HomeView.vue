@@ -5,7 +5,7 @@ import {
   calPickerDecade, calPickerSelectYear, calPickerYearStep, calPickerSelectMonth,
   calSelect, newDiary, editDiary
 } from '../store'
-import { greeting, fmtDate, todayStr, toDateStr } from '../utils/helpers'
+import { fmtDate, todayStr, toDateStr } from '../utils/helpers'
 import { sortDiaries } from '../composables/useSort'
 import Icon from '../components/Icon.vue'
 
@@ -62,13 +62,6 @@ onBeforeUnmount(() => { state.homeScroll = window.scrollY })
 
 <template>
   <section class="view">
-    <div class="page-head">
-      <div>
-        <h1 class="page-title">{{ greeting() }}，{{ state.user.name }}</h1>
-        <p class="page-sub">今天是 {{ fmtDate(todayStr()) }}，写点什么留下来吧。</p>
-      </div>
-    </div>
-
     <div class="hero-calendar">
       <div class="cal-main">
         <div class="cal-head">

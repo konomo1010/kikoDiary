@@ -59,15 +59,19 @@ test('presetRange 本月 / 上月 / 今年', () => {
   })
 })
 
-test('presetRange 近 30 天跨月也正确', () => {
-  assert.deepEqual(presetRange('last-30', TODAY), {
-    from: '2026-10-07',
-    to: '2026-11-05',
+test('presetRange 本周 / 上周按周一到周日', () => {
+  assert.deepEqual(presetRange('this-week', TODAY), {
+    from: '2026-11-02',
+    to: '2026-11-08',
   })
-  // 1 月初回溯到上一年
-  assert.deepEqual(presetRange('last-30', new Date(2026, 0, 3)), {
-    from: '2025-12-05',
-    to: '2026-01-03',
+  assert.deepEqual(presetRange('last-week', TODAY), {
+    from: '2026-10-26',
+    to: '2026-11-01',
+  })
+  // 跨年周
+  assert.deepEqual(presetRange('this-week', new Date(2027, 0, 1)), {
+    from: '2026-12-28',
+    to: '2027-01-03',
   })
 })
 

@@ -61,23 +61,29 @@ function snapshot() {
 const dirty = computed(() => !!initialSnapshot.value && snapshot() !== initialSnapshot.value)
 watch(dirty, (value) => emit('dirty-change', value))
 
-function resetPanelScroll() {
+function panelScrollEls() {
+  const root = panelEl.value
+  if (!root) return []
+  return [...root.querySelectorAll('.notion-like-editor-layout, .notion-like-editor-content, .tiptap.ProseMirror')]
+}
+
+function getPanelScrollTop() {
+  return panelScrollEls()[0]?.scrollTop || 0
+}
+
+function resetPanelScroll(top = 0) {
   nextTick(() => {
     requestAnimationFrame(() => {
-      const root = panelEl.value
-      if (!root) return
-      root
-        .querySelectorAll('.notion-like-editor-layout, .notion-like-editor-content, .tiptap.ProseMirror')
-        .forEach((el) => { el.scrollTop = 0 })
+      panelScrollEls().forEach((el) => { el.scrollTop = top })
     })
   })
 }
 
 async function load(id) {
   if (id == null) return
+  const savedScrollTop = state.settings.panelKeepScroll ? getPanelScrollTop() : 0
   loading.value = true
   initialSnapshot.value = ''
-  resetPanelScroll()
   const d = state.diaries.find((x) => x.id === id)
   title.value = d?.title || ''
   date.value = d?.date || todayStr()
@@ -93,7 +99,7 @@ async function load(id) {
   await nextTick()
   initialSnapshot.value = snapshot()
   loading.value = false
-  resetPanelScroll()
+  resetPanelScroll(savedScrollTop)
 }
 
 watch(
@@ -145,7 +151,7 @@ defineExpose({
 
 <template>
   <section ref="panelEl" class="diary-panel">
-    <EditorBodyCard :content="content" status="编辑日记">
+    <EditorBodyCard :content="content" :title="state.hasTitle ? title.trim() : ''" status="编辑日记">
       <div class="diary-panel-body">
         <NotionLikeEditor v-model="content" />
       </div>

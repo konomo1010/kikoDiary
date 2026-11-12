@@ -52,7 +52,8 @@ export function buildTrail(loc) {
   const { view, editingId, editorOrigin, diaryFilter, diaries } = loc || {}
   const home = { key: 'home', view: 'home', label: VIEW_LABELS.home }
 
-  if (!view || view === 'home') return []
+  if (!view) return []
+  if (view === 'home') return [home]
 
   if (view === 'editor') {
     const editor = { key: 'editor', view: 'editor', label: editorLabel(editingId, diaries) }

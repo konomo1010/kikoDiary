@@ -16,10 +16,7 @@ const max = computed(() => Math.max(1, ...counts.value.map((c) => c.count)))
 <template>
   <section class="view">
     <div class="page-head">
-      <div>
-        <h1 class="page-title">标签</h1>
-        <p class="page-sub">用标签整理你的日记，共 {{ state.tags.length }} 个标签</p>
-      </div>
+      <p class="page-sub">用标签整理你的日记，共 {{ state.tags.length }} 个标签</p>
       <button class="btn btn-primary" @click="openAddTag"><Icon name="plus" /> 添加标签</button>
     </div>
 

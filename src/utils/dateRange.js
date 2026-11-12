@@ -42,7 +42,7 @@ function localDateStr(d) {
 
 /**
  * 常用区间预置。today 可注入，便于测试。
- * key: this-month | last-month | last-30 | this-year | last-year | all
+ * key: this-week | last-week | this-month | last-month | this-year | last-year | all
  */
 export function presetRange(key, today = new Date()) {
   const y = today.getFullYear()
@@ -50,16 +50,24 @@ export function presetRange(key, today = new Date()) {
   const day = today.getDate()
 
   switch (key) {
+    case 'this-week': {
+      const start = new Date(y, m - 1, day - ((today.getDay() + 6) % 7))
+      const end = new Date(start)
+      end.setDate(end.getDate() + 6)
+      return { from: localDateStr(start), to: localDateStr(end) }
+    }
+    case 'last-week': {
+      const start = new Date(y, m - 1, day - ((today.getDay() + 6) % 7) - 7)
+      const end = new Date(start)
+      end.setDate(end.getDate() + 6)
+      return { from: localDateStr(start), to: localDateStr(end) }
+    }
     case 'this-month':
       return { from: ymd(y, m, 1), to: ymd(y, m, daysInMonth(y, m)) }
     case 'last-month': {
       const ly = m === 1 ? y - 1 : y
       const lm = m === 1 ? 12 : m - 1
       return { from: ymd(ly, lm, 1), to: ymd(ly, lm, daysInMonth(ly, lm)) }
-    }
-    case 'last-30': {
-      const start = new Date(y, m - 1, day - 29)
-      return { from: localDateStr(start), to: ymd(y, m, day) }
     }
     case 'this-year':
       return { from: ymd(y, 1, 1), to: ymd(y, 12, 31) }

@@ -28,6 +28,7 @@ const textColors = [
 ]
 
 const highlightColors = [
+  { name: 'None', value: '' },
   { name: 'Yellow', value: 'var(--tt-color-highlight-yellow)' },
   { name: 'Green', value: 'var(--tt-color-highlight-green)' },
   { name: 'Blue', value: 'var(--tt-color-highlight-blue)' },

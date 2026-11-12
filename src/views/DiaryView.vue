@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { state, newDiary, editDiary, deleteDiary, computeStats, tagCount, setShowListTags, setDiaryPanelOpen, setDiaryListWidth, openModal, showView, togglePinDiary, duplicateDiary, tagModal, openTagModal, saveDiaryTags } from '../store'
+import { state, newDiary, editDiary, deleteDiary, computeStats, tagCount, setShowListTags, setPanelKeepScroll, setDiaryPanelOpen, setDiaryListWidth, openModal, showView, togglePinDiary, duplicateDiary, tagModal, openTagModal, saveDiaryTags } from '../store'
 import { tagListWithUntagged, tagsMatchFilter } from '../utils/tags'
 import * as dbApi from '../api'
 import { fmtDate } from '../utils/helpers'
@@ -31,6 +31,24 @@ async function loadDataSize() {
   } catch (e) {
     console.error('[diary] load data size failed', e)
   }
+}
+
+function highlightedParts(text) {
+  const source = String(text || '')
+  const keyword = state.search.trim()
+  if (!keyword) return [{ text: source, hit: false }]
+  const pattern = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  const parts = []
+  let last = 0
+  let match
+  while ((match = pattern.exec(source)) !== null) {
+    if (match.index > last) parts.push({ text: source.slice(last, match.index), hit: false })
+    parts.push({ text: match[0], hit: true })
+    last = match.index + match[0].length
+    if (match[0].length === 0) pattern.lastIndex++
+  }
+  if (last < source.length) parts.push({ text: source.slice(last), hit: false })
+  return parts.length ? parts : [{ text: source, hit: false }]
 }
 
 function toggleSort() {
@@ -183,12 +201,12 @@ const dateButtonText = computed(() =>
 )
 
 const datePresets = [
+  { key: 'this-week', label: '本周' },
+  { key: 'last-week', label: '上周' },
   { key: 'this-month', label: '本月' },
   { key: 'last-month', label: '上月' },
-  { key: 'last-30', label: '近 30 天' },
   { key: 'this-year', label: '今年' },
   { key: 'last-year', label: '去年' },
-  { key: 'all', label: '全部时间' },
 ]
 
 function toggleDatePanel() {
@@ -834,6 +852,17 @@ const stats = computed(() => computeStats())
       >
         <Icon :name="state.settings.showListTags ? 'eye' : 'eyeOff'" />
       </button>
+
+      <button
+        type="button"
+        class="tag-visibility-btn"
+        :class="{ active: state.settings.panelKeepScroll }"
+        :aria-pressed="state.settings.panelKeepScroll"
+        :title="state.settings.panelKeepScroll ? '当前：切换日记保留滚动位置' : '当前：切换日记回到顶部'"
+        @click="setPanelKeepScroll(!state.settings.panelKeepScroll)"
+      >
+        <Icon name="anchor" />
+      </button>
     </div>
 
     <div
@@ -869,7 +898,12 @@ const stats = computed(() => computeStats())
             />
             <div v-else class="card entry-card" :data-diary-id="d.id" :class="{ 'entry-card--active': panelOpen && panelId === d.id, 'entry-card--menu': cardMenuId === d.id, 'entry-card--pinned': (state.settings.pinnedDiaryIds || []).includes(d.id) }" @click="onCardClick(d)" @dblclick.stop="openInlineTitle(d)">
               <div class="entry-top" :class="{ 'entry-top--untitled': !(d.title && d.title.trim()) }">
-                <h3 v-if="d.title && d.title.trim()" class="entry-title">{{ d.title }}</h3>
+                <h3 v-if="d.title && d.title.trim()" class="entry-title">
+                  <template v-for="(part, i) in highlightedParts(d.title)" :key="i">
+                    <mark v-if="part.hit" class="kiko-search-highlight">{{ part.text }}</mark>
+                    <template v-else>{{ part.text }}</template>
+                  </template>
+                </h3>
                 <div v-else-if="(d.tags || []).length" class="entry-tags entry-tags-inline">
                   <span v-for="t in (d.tags || [])" :key="t" class="tag-pill" :class="{ on: filterTags.includes(t) }" @click.stop="toggleFilterTag(t)">{{ t }}</span>
                 </div>

@@ -173,12 +173,7 @@ async function cleanEmptyDirs() {
 
 <template>
   <section class="view">
-    <div class="page-head">
-      <div>
-        <h1 class="page-title">设置</h1>
-        <p class="page-sub">个性化你的写作体验</p>
-      </div>
-    </div>
+    <div class="page-head"></div>
 
     <div class="settings-group">
       <h3>用户信息</h3>

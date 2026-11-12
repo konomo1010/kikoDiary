@@ -6,6 +6,7 @@ import { docToText } from '../utils/helpers'
 const props = defineProps({
   content: { type: [Object, String], default: null },
   status: { type: String, default: '' },
+  title: { type: String, default: '' },
 })
 
 const wordCount = computed(() => docToText(props.content).replace(/\s/g, '').length)
@@ -21,6 +22,7 @@ const wordCount = computed(() => docToText(props.content).replace(/\s/g, '').len
       :style="editorDark ? { background: '#0e0e11', color: 'rgba(245,245,245,0.65)' } : {}"
     >
       <span class="word-count">{{ wordCount }} 字</span>
+      <span v-if="title" class="foot-title">{{ title }}</span>
       <span v-if="status" class="word-count">{{ status }}</span>
     </div>
   </div>

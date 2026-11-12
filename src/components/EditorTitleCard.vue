@@ -50,6 +50,24 @@ const decadeYears = computed(() => Array.from({ length: 12 }, (_, i) => pickerDe
 
 const dateLabel = computed(() => fmtDate(date.value))
 
+const searchHighlight = computed(() => {
+  const keyword = state.search.trim()
+  if (!keyword || !title.value) return null
+  const pattern = new RegExp(keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  const source = title.value
+  const parts = []
+  let last = 0
+  let match
+  while ((match = pattern.exec(source)) !== null) {
+    if (match.index > last) parts.push({ text: source.slice(last, match.index), hit: false })
+    parts.push({ text: match[0], hit: true })
+    last = match.index + match[0].length
+    if (match[0].length === 0) pattern.lastIndex++
+  }
+  if (last < source.length) parts.push({ text: source.slice(last), hit: false })
+  return parts.some((p) => p.hit) ? parts : null
+})
+
 function toggleDatePicker() {
   pickerOpen.value = !pickerOpen.value
   if (pickerOpen.value) {
@@ -137,7 +155,15 @@ defineExpose({ focusTitle })
 
 <template>
   <div class="card editor-card editor-card-title">
-    <input v-if="state.hasTitle" ref="titleInputEl" v-model="title" class="title-input" type="text" placeholder="给今天起个标题…">
+    <div v-if="state.hasTitle" class="title-input-wrap">
+      <div v-if="searchHighlight" class="title-highlight-layer" aria-hidden="true">
+        <template v-for="(part, i) in searchHighlight" :key="i">
+          <mark v-if="part.hit" class="kiko-search-highlight">{{ part.text }}</mark>
+          <template v-else>{{ part.text }}</template>
+        </template>
+      </div>
+      <input ref="titleInputEl" v-model="title" class="title-input" :class="{ 'title-input--highlight': searchHighlight }" type="text" placeholder="给今天起个标题…">
+    </div>
 
     <div class="editor-meta-row">
       <div class="editor-meta">

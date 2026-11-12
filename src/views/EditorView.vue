@@ -171,7 +171,7 @@ onBeforeUnmount(() => {
 
     <EditorTitleCard v-model:title="title" v-model:date="dateValue" :autofocus="isNew && state.hasTitle" />
 
-    <EditorBodyCard :content="content" :status="isNew ? '新建日记' : '编辑日记'">
+    <EditorBodyCard :content="content" :title="state.hasTitle ? title.trim() : ''" :status="isNew ? '新建日记' : '编辑日记'">
       <NotionLikeEditor v-model="content" :autofocus="isNew && !state.hasTitle" />
     </EditorBodyCard>
   </section>

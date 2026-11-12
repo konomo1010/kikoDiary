@@ -21,8 +21,8 @@ test('editorLabel 用标题，超长截断，无标题时回退', () => {
   assert.equal(editorLabel(8, [{ id: 8, title: long }]), '编辑：' + '一'.repeat(16) + '…')
 })
 
-test('首页不渲染面包屑（返回空数组）', () => {
-  assert.deepEqual(buildTrail({ view: 'home' }), [])
+test('首页面包屑只显示「首页」；空位置返回空数组', () => {
+  assert.deepEqual(buildTrail({ view: 'home' }).map((c) => c.label), ['首页'])
   assert.deepEqual(buildTrail(null), [])
 })
 
