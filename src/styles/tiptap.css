@@ -475,8 +475,9 @@
   --tt-table-selected-stroke: var(--tt-brand-color-400, #818cf8);
   --tt-table-column-resize-handle-bg: var(--tt-brand-color-400, #818cf8);
   --tt-table-cell-padding: 0.5rem;
-  --tt-table-margin-block: 1.25rem;
-  --tt-table-pad-block-start: 1rem;
+  /* 表格顶边框与块级 +⋮⋮ 手柄上沿对齐：上方不再留 margin / padding 缓冲 */
+  --tt-table-margin-block: 0;
+  --tt-table-pad-block-start: 0;
   --tt-table-pad-block-end: 1.5rem;
   --tt-table-pad-inline-start: 1rem;
   --tt-table-pad-inline-end: 1.5rem;
@@ -570,10 +571,9 @@
   display: inline-flex;
 }
 .table-trigger-popover {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  z-index: 60;
+  /* 与链接/颜色弹层一致：Teleport 到 body 后用 fixed 定位，贴边自动翻转/平移 */
+  position: fixed;
+  z-index: 100;
   padding: 6px;
   background: var(--tt-card-bg-color, #fff);
   border: 1px solid var(--tt-border-color, #e5e7eb);
@@ -1006,6 +1006,8 @@
   box-shadow: var(--tt-shadow-elevated-md);
   animation: tt-popover-in 150ms cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: top;
+  /* 窗口再窄也不让弹层横向溢出，内部输入框自行收缩 */
+  max-width: calc(100vw - 16px);
 }
 .tt-swatch-row {
   display: flex;
@@ -1029,6 +1031,9 @@
   gap: 4px;
   align-items: center;
 }
+.tt-link-input-row .tt-btn {
+  flex: 0 0 auto;
+}
 .tt-link-input {
   height: 30px;
   padding: 0 0.5rem;
@@ -1039,6 +1044,9 @@
   font-size: 13px;
   font-family: inherit;
   outline: none;
+  /* 面板受 max-width 限制时输入框可收缩，不被裁掉 */
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .tt-link-input:focus {
   border-color: var(--tt-brand-color-500);
