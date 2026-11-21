@@ -40,6 +40,8 @@ const state = reactive({
   referencePosWrapper: null as DOMRect | null,
   referencePosRow: null as DOMRect | null,
   referencePosRowEl: null as HTMLElement | null,
+  // 悬停时的那张表节点本身：切日记或表格被替换后对象会变，用于判断浮层是否已失效
+  hoverNode: null as any,
 })
 
 const rowMenuOpen = ref(false)
@@ -339,6 +341,7 @@ function hide() {
   state.referencePosCell = undefined
   state.referencePosRow = undefined
   state.referencePosRowEl = null
+  state.hoverNode = null
   rowMenuOpen.value = false
   colMenuOpen.value = false
   cellMenuOpen.value = false
@@ -518,6 +521,7 @@ function updateHover(event: MouseEvent) {
     state.show = true
     state.tablePos = tableInfo.pos
     state.block = tableInfo.node
+    state.hoverNode = tableInfo.node
     state.rowIndex = indices.rowIndex
     state.colIndex = indices.colIndex
     state.referencePosTable = tableRect
@@ -559,6 +563,7 @@ function updateHover(event: MouseEvent) {
     state.showAddColumn = right
     state.referencePosTable = tableRect
     state.block = tableInfo.node
+    state.hoverNode = tableInfo.node
     state.tablePos = tableInfo.pos
     state.rowIndex = keepCell ? state.rowIndex : undefined
     state.colIndex = keepCell ? state.colIndex : undefined
@@ -571,11 +576,34 @@ function updateHover(event: MouseEvent) {
 function refreshLayout() {
   const e = editor?.value
   if (!e || !state.show || state.tablePos < 0) return
+
+  // 表格被删除或所在节点被替换后锚点已失效，浮层必须收起，否则会停在旧坐标上
+  const anchor = e.state.doc.nodeAt(state.tablePos)
+  if (!anchor || anchor.type.name !== 'table') {
+    hide()
+    return
+  }
+
   const dom = e.view.nodeDOM(state.tablePos) as HTMLElement | undefined
   const tbody = dom?.querySelector('tbody')
-  if (!tbody) return
+  if (!tbody) {
+    hide()
+    return
+  }
 
   const tableRect = tbody.getBoundingClientRect()
+
+  // 表格整体滚出编辑可视区后不再保留把手，避免 fixed 浮层挂在正文外面
+  const bounds = visibleBounds(tbody)
+  if (
+    tableRect.bottom < bounds.top ||
+    tableRect.top > bounds.bottom ||
+    tableRect.right < bounds.left ||
+    tableRect.left > bounds.right
+  ) {
+    hide()
+    return
+  }
   if (!state.referencePosTable || !rectEq(state.referencePosTable, tableRect)) {
     state.referencePosTable = tableRect
   }
@@ -674,6 +702,10 @@ onMounted(() => {
   window.addEventListener('resize', refreshLayout)
   window.addEventListener('dragover', onDragOver)
   window.addEventListener('drop', onDrop)
+  // 鼠标移出窗口 / 窗口失焦 / 切换日记（正文被整体替换）时收起浮层
+  window.addEventListener('blur', hide)
+  document.documentElement.addEventListener('mouseleave', hide)
+  window.addEventListener('kiko:doc-replaced', hide)
   document.addEventListener('keydown', onKeydown)
   document.addEventListener('mousedown', onDocMousedown, true)
   document.addEventListener('dblclick', onDocDblclick, true)
@@ -686,6 +718,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', refreshLayout)
   window.removeEventListener('dragover', onDragOver)
   window.removeEventListener('drop', onDrop)
+  window.removeEventListener('blur', hide)
+  document.documentElement.removeEventListener('mouseleave', hide)
+  window.removeEventListener('kiko:doc-replaced', hide)
   document.removeEventListener('keydown', onKeydown)
   document.removeEventListener('mousedown', onDocMousedown, true)
   document.removeEventListener('dblclick', onDocDblclick, true)

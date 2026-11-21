@@ -202,6 +202,8 @@ watch(
         })
         .setContent(val ?? '', { emitUpdate: false })
         .run()
+      // 正文被整体替换（切换日记）时，让锚定在旧正文上的浮层（表格把手等）收起
+      window.dispatchEvent(new CustomEvent('kiko:doc-replaced'))
       scheduleHighlight()
     }
   }
