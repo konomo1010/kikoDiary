@@ -17,6 +17,7 @@ import { Indent } from './indent'
 import { BlockHandleExtension } from './blockHandle'
 import { BlockId } from './blockId'
 import { BlockShortcuts } from './blockShortcuts'
+import { HeadingExit } from './headingExit'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { createLowlight, common } from 'lowlight'
 
@@ -60,6 +61,7 @@ export function createEditorExtensions() {
     SlashCommands,
     BlockId,
     BlockShortcuts,
+    HeadingExit,
     BlockHandleExtension,
   ]
 }

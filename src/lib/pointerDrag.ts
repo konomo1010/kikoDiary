@@ -1,6 +1,6 @@
 import { onBeforeUnmount, watch, type Ref } from 'vue'
 import type { Editor } from '@tiptap/core'
-import { NodeSelection } from '@tiptap/pm/state'
+import { NodeSelection, TextSelection } from '@tiptap/pm/state'
 
 const DRAG_SCROLL_ZONE = 64
 const DRAG_SCROLL_MAX_STEP = 20
@@ -18,6 +18,19 @@ function findScrollContainer(element: HTMLElement): HTMLElement {
     current = current.parentElement
   }
   return (document.scrollingElement as HTMLElement) ?? document.documentElement
+}
+
+/** 标题拖拽范围：标题本身 + 后续内容，直到下一个同级或更高级标题 */
+function headingSectionEnd(doc: any, pos: number, node: any): number {
+  const level = node.attrs?.level ?? 1
+  let end = pos + node.nodeSize
+  const index = doc.resolve(pos).index(0)
+  for (let i = index + 1; i < doc.childCount; i++) {
+    const child = doc.child(i)
+    if (child.type.name === 'heading' && (child.attrs?.level ?? 1) <= level) break
+    end += child.nodeSize
+  }
+  return end
 }
 
 /**
@@ -64,6 +77,8 @@ export function usePointerDrag(
     let cursorStyle: HTMLStyleElement | null = null
     let scrollContainer: HTMLElement | null = null
     let scrollTimer = 0
+    let dragFrom = -1
+    let dragTo = -1
 
     const dispatchDragEvent = (
       type: string,
@@ -130,9 +145,10 @@ export function usePointerDrag(
     }
 
     const buildPreview = () => {
-      const dom = view.nodeDOM(view.state.selection.from)
-      if (!(dom instanceof HTMLElement)) return
-      const rect = dom.getBoundingClientRect()
+      const from = dragFrom >= 0 ? dragFrom : view.state.selection.from
+      const firstDom = view.nodeDOM(from)
+      if (!(firstDom instanceof HTMLElement)) return
+      const rect = firstDom.getBoundingClientRect()
       grabOffsetX = lastX - rect.left
       grabOffsetY = lastY - rect.top
       preview = document.createElement('div')
@@ -154,7 +170,17 @@ export function usePointerDrag(
         zIndex: '1000',
         willChange: 'transform',
       })
-      preview.appendChild(dom.cloneNode(true))
+      preview.appendChild(firstDom.cloneNode(true))
+      // 标题拖拽：把整个章节的后续块一起放进预览
+      const end = dragTo > from ? dragTo : from + (view.state.doc.nodeAt(from)?.nodeSize ?? 0)
+      let pos = from + (view.state.doc.nodeAt(from)?.nodeSize ?? 0)
+      while (pos < end) {
+        const dom = view.nodeDOM(pos)
+        if (dom instanceof HTMLElement) preview.appendChild(dom.cloneNode(true))
+        const next = view.state.doc.nodeAt(pos)
+        if (!next || next.nodeSize <= 0) break
+        pos += next.nodeSize
+      }
       preview.querySelectorAll('[id]').forEach((el) => el.removeAttribute('id'))
       document.body.appendChild(preview)
       positionPreview()
@@ -194,6 +220,8 @@ export function usePointerDrag(
       preview?.remove()
       preview = null
       scrollContainer = null
+      dragFrom = -1
+      dragTo = -1
     }
 
     const finishDrag = (x: number, y: number, drop: boolean) => {
@@ -294,15 +322,33 @@ export function usePointerDrag(
       }
       event.preventDefault()
       sawDragStart = true
-      // 扩展没能解析出拖拽范围时，回退到拖拽手柄附着的块。
-      if (!view.dragging) {
-        const pos = nodePosRef.value
-        const node = pos >= 0 ? view.state.doc.nodeAt(pos) : null
-        if (node && NodeSelection.isSelectable(node)) {
-          const selection = NodeSelection.create(view.state.doc, pos)
+      const pos = nodePosRef.value
+      const node = pos >= 0 ? view.state.doc.nodeAt(pos) : null
+      if (node) {
+        dragFrom = pos
+        dragTo = pos + node.nodeSize
+        if (node.type.name === 'heading') {
+          // 标题连同其下内容一起拖拽
+          dragTo = headingSectionEnd(view.state.doc, pos, node)
+          // 同步扩展选区，ProseMirror 移动时会删除整个选区范围
+          const from = pos + 1
+          const to = Math.max(from, dragTo - 1)
+          const selection =
+            dragTo > pos + node.nodeSize
+              ? TextSelection.create(view.state.doc, from, to)
+              : NodeSelection.create(view.state.doc, pos)
           view.dispatch(view.state.tr.setSelection(selection))
-          view.dragging = { slice: selection.content(), move: true }
+          view.dragging = {
+            slice: view.state.doc.slice(pos, dragTo),
+            move: true,
+          }
         }
+      }
+      // 扩展没能解析出拖拽范围时，回退到拖拽手柄附着的块。
+      if (!view.dragging && node && NodeSelection.isSelectable(node)) {
+        const selection = NodeSelection.create(view.state.doc, pos)
+        view.dispatch(view.state.tr.setSelection(selection))
+        view.dragging = { slice: selection.content(), move: true }
       }
       activate()
     }
