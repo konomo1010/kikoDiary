@@ -50,15 +50,47 @@ onBeforeUnmount(() => {
   tocHasItems.value = false
 })
 
+/** 找到标题块真正所在的滚动容器（编辑区不在 window 上滚动） */
+function getScrollContainer(el: HTMLElement): HTMLElement | null {
+  let parent = el.parentElement
+  while (parent) {
+    const style = getComputedStyle(parent)
+    if (/(auto|scroll|overlay)/.test(style.overflowY)) return parent
+    parent = parent.parentElement
+  }
+  return null
+}
+
+/** 顶部留白：滚动容器顶部的 sticky 工具栏高度 + 12px 呼吸空间 */
+function getTopOffset(el: HTMLElement): number {
+  const container = getScrollContainer(el)
+  const breathing = 12
+  if (!container) return breathing
+  const toolbar = container.querySelector('.tiptap-toolbar[data-variant="fixed"]')
+  if (toolbar instanceof HTMLElement && getComputedStyle(toolbar).position === 'sticky') {
+    return toolbar.getBoundingClientRect().height + breathing
+  }
+  return breathing
+}
+
 function goTo(pos: number) {
   const e = editor?.value
   if (!e) return
+
+  // 光标放到标题开头（PM 只会做「就近滚动」，下面再接管真正的定位）
   e.chain().focus().setTextSelection(pos).run()
+
   const dom = e.view.nodeDOM(pos)
-  if (dom instanceof HTMLElement) {
-    const top = dom.getBoundingClientRect().top + window.scrollY - 100
-    window.scrollTo({ top, behavior: 'smooth' })
-  }
+  if (!(dom instanceof HTMLElement)) return
+
+  // scrollIntoView 会自己找正确的可滚动祖先，scroll-margin-top 负责留白
+  const offset = getTopOffset(dom)
+  dom.style.scrollMarginTop = `${offset}px`
+  dom.scrollIntoView({ block: 'start', behavior: 'smooth' })
+
+  window.setTimeout(() => {
+    dom.style.removeProperty('scroll-margin-top')
+  }, 600)
 }
 </script>
 
