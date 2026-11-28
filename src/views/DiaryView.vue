@@ -937,7 +937,10 @@ const stats = computed(() => computeStats())
         <div v-else class="empty">
           <Icon name="search" />
           <p>没有找到匹配的日记</p>
-          <button class="btn btn-ghost" @click="clearAllFilters">清除筛选</button>
+          <div class="empty-actions">
+            <button class="btn btn-ghost" @click="clearAllFilters">清除筛选</button>
+            <button class="btn btn-primary" @click="newDiary()"><Icon name="plus" /> 新建日记</button>
+          </div>
         </div>
       </div>
     </div>
@@ -962,6 +965,7 @@ const stats = computed(() => computeStats())
       <div v-else-if="panelOpen" class="diary-panel-empty">
         <Icon name="panelRight" />
         <p>从左侧选择一篇日记开始编辑</p>
+        <button class="btn btn-primary" @click="newDiary()"><Icon name="plus" /> 新建日记</button>
       </div>
 
       <div v-else class="card stats">

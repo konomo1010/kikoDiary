@@ -17,6 +17,22 @@ const showCaption = computed(
   () => props.node.attrs.showCaption || props.node.content.size > 0
 )
 
+/** 悬浮提示显示图片的磁盘绝对路径 */
+const imageTitle = computed(() => {
+  const src = props.node.attrs.src || ''
+  const prefix = src.startsWith('http://asset.localhost/')
+    ? 'http://asset.localhost/'
+    : src.startsWith('asset://localhost/')
+      ? 'asset://localhost/'
+      : ''
+  if (!prefix) return src
+  try {
+    return decodeURIComponent(src.slice(prefix.length))
+  } catch (e) {
+    return src
+  }
+})
+
 function startResize(side: 'left' | 'right', e: MouseEvent) {
   e.preventDefault()
   e.stopPropagation()
@@ -73,7 +89,7 @@ function selectImage() {
         ref="imgRef"
         :src="node.attrs.src"
         :alt="node.attrs.alt || ''"
-        :title="node.attrs.title || undefined"
+        :title="imageTitle"
         :style="{ width: width ? `${width}px` : undefined }"
         class="image-node-img"
         draggable="false"

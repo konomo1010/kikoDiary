@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch }
 import { EditorContent, useEditor } from '@tiptap/vue-3'
 import type { Editor } from '@tiptap/core'
 import { openUrl } from '@tauri-apps/plugin-opener'
+import { NodeSelection } from '@tiptap/pm/state'
 import { SearchHighlight, setSearchKeyword } from '../lib/searchHighlight'
 import TopToolbar from './TopToolbar.vue'
 import FloatingToolbar from './FloatingToolbar.vue'
@@ -56,6 +57,8 @@ onMounted(() => {
   document.addEventListener('keydown', onSlashShortcut)
   document.addEventListener('click', onLinkClick, true)
   document.addEventListener('dblclick', onImageDblClick, true)
+  document.addEventListener('copy', onCopyImage, true)
+  document.addEventListener('keydown', onCopyImageKey, true)
   document.addEventListener('keydown', onModifierKey, true)
   document.addEventListener('keyup', onModifierKey, true)
   window.addEventListener('blur', onWindowBlur)
@@ -92,6 +95,65 @@ function onModifierKey(e: KeyboardEvent) {
 
 function onWindowBlur() {
   setLinkModifier(false)
+}
+
+/** 在光标处插入图片节点（块级节点交给 insertContent 处理段落拆分） */
+function insertImageAttrs(attrs, view) {
+  const ed = editorRef.value
+  if (ed) {
+    ed.chain().focus().insertContent({ type: 'image', attrs }).run()
+    return
+  }
+  const node = view.state.schema.nodes.image.create(attrs)
+  view.dispatch(view.state.tr.replaceSelectionWith(node))
+}
+
+/** Ctrl/Cmd+C：图片节点选区直接写入系统剪贴板，避免原生复制链路吞掉 */
+async function onCopyImageKey(event: KeyboardEvent) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return
+  if (String(event.key || '').toLowerCase() !== 'c') return
+  const ed = editor.value
+  if (!ed) return
+  const selection = ed.state.selection
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'image') return
+  const attrs = selection.node.attrs
+  const img = document.createElement('img')
+  img.setAttribute('src', attrs.src || '')
+  img.setAttribute('alt', attrs.alt || '')
+  img.setAttribute('data-kiko-image', '1')
+  if (attrs.width) img.setAttribute('width', String(attrs.width))
+  if (attrs['data-align']) img.setAttribute('data-align', attrs['data-align'])
+  event.preventDefault()
+  event.stopPropagation()
+  try {
+    const data = {
+      'text/html': new Blob([img.outerHTML], { type: 'text/html' }),
+      'text/plain': new Blob([attrs.src || ''], { type: 'text/plain' }),
+    }
+    await navigator.clipboard.write([new ClipboardItem(data)])
+  } catch (e) {
+    console.warn('[editor] copy image to clipboard failed', e)
+  }
+}
+
+/** 复制图片节点：写入专用剪贴板格式 + 标准 HTML，保证粘贴时能还原为图片 */
+function onCopyImage(event: ClipboardEvent) {
+  const ed = editor.value
+  if (!ed || !event.clipboardData) return
+  const selection = ed.state.selection
+  if (!(selection instanceof NodeSelection) || selection.node.type.name !== 'image') return
+  const attrs = selection.node.attrs
+  event.preventDefault()
+  event.clipboardData.setData('application/x-kiko-image', JSON.stringify(attrs))
+  // 标准 HTML 格式兼容系统剪贴板；自定义 MIME 可能被系统丢弃
+  const img = document.createElement('img')
+  img.setAttribute('src', attrs.src || '')
+  img.setAttribute('alt', attrs.alt || '')
+  img.setAttribute('data-kiko-image', '1')
+  if (attrs.width) img.setAttribute('width', String(attrs.width))
+  if (attrs['data-align']) img.setAttribute('data-align', attrs['data-align'])
+  event.clipboardData.setData('text/html', img.outerHTML)
+  event.clipboardData.setData('text/plain', attrs.src || '')
 }
 
 /** 双击正文图片：打开全屏图片查看器 */
@@ -147,6 +209,36 @@ const editor = useEditor({
     handlePaste: (_view, event) => {
       const clipboard = event.clipboardData
       if (!clipboard) return false
+      // 编辑器内复制的图片：按节点属性还原，兼容 WebView 的默认图片复制
+      const custom = clipboard.getData('application/x-kiko-image')
+      if (custom) {
+        try {
+          insertImageAttrs(JSON.parse(custom), _view)
+          return true
+        } catch (e) {
+          console.warn('[editor] paste image node failed', e)
+        }
+      }
+      // 系统剪贴板可能清洗自定义属性，HTML 里只要有 img 就按图片还原
+      const html = clipboard.getData('text/html')
+      if (html && /<img\b/i.test(html)) {
+        try {
+          const doc = new DOMParser().parseFromString(html, 'text/html')
+          const img = doc.querySelector('img[src]')
+          if (img) {
+            const width = Number(img.getAttribute('width'))
+            insertImageAttrs({
+              src: img.getAttribute('src') || '',
+              alt: img.getAttribute('alt') || '',
+              width: Number.isFinite(width) && width > 0 ? width : null,
+              'data-align': img.getAttribute('data-align') || 'center',
+            }, _view)
+            return true
+          }
+        } catch (e) {
+          console.warn('[editor] paste image html failed', e)
+        }
+      }
       // Excel/网页复制时常同时带图片文件，有文本或 HTML 时优先按文本粘贴
       if (clipboard.types.includes('text/html') || clipboard.types.includes('text/plain')) return false
       const files = clipboard.files
@@ -164,10 +256,54 @@ const editor = useEditor({
     },
     handleKeyDown: (view, event) => {
       if (event.key !== 'Tab') return false
-      const { $from } = view.state.selection
+      const { state } = view
+      const { from, to, $from } = state.selection
       if ($from.parent.type.name !== 'codeBlock') return false
       event.preventDefault()
-      view.dispatch(view.state.tr.insertText('  ', view.state.selection.from, view.state.selection.to))
+
+      // 空光标：直接插入两空格
+      if (from === to) {
+        view.dispatch(state.tr.insertText('  ', from))
+        return true
+      }
+
+      const start = $from.start()
+      const end = $from.end()
+      const text = state.doc.textBetween(start, end, '\n')
+      const localFrom = Math.max(0, from - start)
+      const localTo = Math.max(localFrom, to - start)
+
+      // 找到与选区相交的每一行
+      const lineStarts = [0]
+      for (let i = 0; i < text.length; i++) {
+        if (text[i] === '\n') lineStarts.push(i + 1)
+      }
+      const targets = lineStarts.filter((s) => {
+        const nl = text.indexOf('\n', s)
+        const lineEnd = nl === -1 ? text.length : nl
+        return s <= localTo && lineEnd >= localFrom
+      })
+
+      if (event.shiftKey) {
+        // Shift+Tab：删除行首最多两个空格
+        const tr = state.tr
+        for (const s of [...targets].reverse()) {
+          const nl = text.indexOf('\n', s)
+          const lineEnd = nl === -1 ? text.length : nl
+          const spaces = /^ */.exec(text.slice(s, lineEnd))[0].length
+          const remove = Math.min(2, spaces)
+          if (remove > 0) tr.delete(start + s, start + s + remove)
+        }
+        view.dispatch(tr)
+        return true
+      }
+
+      // Tab：在每一行行首插入两个空格，保留原选中内容
+      const tr = state.tr
+      for (const s of [...targets].reverse()) {
+        tr.insert(start + s, state.schema.text('  '))
+      }
+      view.dispatch(tr)
       return true
     },
   },
@@ -248,6 +384,8 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', onSlashShortcut)
   document.removeEventListener('click', onLinkClick, true)
   document.removeEventListener('dblclick', onImageDblClick, true)
+  document.removeEventListener('copy', onCopyImage, true)
+  document.removeEventListener('keydown', onCopyImageKey, true)
   document.removeEventListener('keydown', onModifierKey, true)
   document.removeEventListener('keyup', onModifierKey, true)
   window.removeEventListener('blur', onWindowBlur)

@@ -20,6 +20,11 @@ export function searchDiaries(query) {
   return invoke('search_diaries', { query })
 }
 
+/** 强制扫一遍数据目录，把外部写入的日记同步进索引 */
+export function rescanDiaries() {
+  return invoke('rescan_diaries')
+}
+
 export function loadConfig() {
   return invoke('load_config')
 }

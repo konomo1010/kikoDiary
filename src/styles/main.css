@@ -73,7 +73,7 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-.app { display: flex; min-height: 100vh; }
+.app { display: flex; height: 100vh; min-height: 0; padding-top: 0; box-sizing: border-box; }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
@@ -163,11 +163,11 @@ body {
 /* ---------- Main ---------- */
 .main { flex: 1; min-width: 0; padding: 34px 40px 60px; max-width: 1240px; margin: 0 auto; }
 /* 面包屑与顶部的间距对齐日记页（日记页 main--diary padding-top 为 8px） */
-.main:not(.main--diary) { padding-top: 8px; }
+.main:not(.main--diary) { padding-top: 0; }
 .main.main--diary {
   max-width: none;
   margin: 0;
-  padding: 8px 20px 0;
+  padding: 0 20px 0;
   height: 100vh;
   box-sizing: border-box;
   display: flex;
@@ -201,8 +201,11 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 24px;
-  margin-bottom: 8px;
+  min-height: 30px;
+  margin-bottom: 4px;
+  padding-top: 0;
+  padding-right: 146px;
+  box-sizing: border-box;
 }
 .content-top-actions { display: flex; align-items: center; gap: 6px; flex: none; }
 .content-top .breadcrumb { margin: 0; }
@@ -213,17 +216,19 @@ body {
   align-items: center;
   justify-content: center;
   background: var(--surface);
-  border: 1px solid var(--border-strong);
+  border: none;
   border-radius: 8px;
   color: var(--muted);
   cursor: pointer;
-  box-shadow: var(--shadow-sm, 0 1px 2px rgba(17, 24, 39, 0.06));
-  transition: background .15s ease, color .15s ease, border-color .15s ease;
+  box-shadow: none;
+  transition: background .15s ease, color .15s ease;
 }
 .diary-panel-toggle:hover { background: var(--surface-2); color: var(--fg); }
-.diary-panel-toggle.active { color: var(--accent-strong); border-color: var(--accent); }
+.diary-panel-toggle.active { color: var(--accent-strong); background: var(--accent-soft); }
 .diary-panel-toggle svg { width: 17px; height: 17px; }
-.panel-save-btn { height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; }
+.content-top-actions .panel-save-btn { height: 30px; padding: 0 12px; font-size: 12.5px; border-radius: 8px; border: none; box-shadow: none; background: transparent; color: var(--accent-strong); }
+.content-top-actions .panel-save-btn:hover { background: var(--surface-2); color: var(--accent-strong); transform: none; }
+.content-top-actions .diary-panel-toggle svg { width: 12px; height: 12px; }
 .diary-panel-empty {
   min-height: 360px;
   display: flex;
@@ -234,7 +239,7 @@ body {
   color: var(--faint);
   text-align: center;
 }
-.diary-panel-empty svg { width: 28px; height: 28px; }
+.diary-panel-empty > .icon > svg { width: 28px; height: 28px; }
 .diary-panel-empty p { margin: 0; font-size: 13px; }
 .diary-panel .notion-like-editor-wrapper { background: var(--tt-bg-color); height: 100%; }
 .diary-panel .tiptap.ProseMirror { padding-left: 3.5rem; }
@@ -478,7 +483,7 @@ body {
 .tag-filter-btn svg { width: 16px; height: 16px; color: var(--faint); flex: none; }
 .tag-filter-btn.icon-only { width: 36px; padding: 0; justify-content: center; position: relative; }
 .tag-filter-btn.icon-only .tag-filter-count {
-  position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px;
+  position: absolute; top: 0; right: 0; min-width: 15px; height: 15px;
   padding: 0 3px; font-size: 10px; line-height: 15px;
 }
 .icon-dot {
@@ -685,11 +690,14 @@ body {
   text-align: center; padding: 60px 20px; color: var(--muted);
   border: 1.5px dashed var(--border-strong); border-radius: var(--radius); background: var(--surface);
 }
-.empty svg { width: 42px; height: 42px; color: var(--faint); margin-bottom: 10px; }
+.empty > .icon > svg { width: 42px; height: 42px; color: var(--faint); margin-bottom: 10px; }
 .empty p { margin: 4px 0 16px; }
+.empty-actions { display: flex; align-items: center; justify-content: center; gap: 8px; }
+.empty-actions .btn { height: 36px; padding: 0 14px; font-size: 13px; }
+.empty-actions .btn svg { width: 15px; height: 15px; }
 
 /* ---------- Editor ---------- */
-.editor-crumb-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.editor-crumb-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; padding-top: 0; padding-right: 146px; }
 .editor-crumb-row .breadcrumb { margin: 0; min-width: 0; }
 .editor-crumb-row .spacer { flex: 1; }
 .editor-crumb-row .btn { height: 32px; padding: 0 12px; font-size: 13px; border-radius: 8px; }
@@ -697,11 +705,11 @@ body {
 .editor-crumb-row .btn svg { width: 15px; height: 15px; }
 
 /* 编辑器视图：顶部操作区 + 标题卡片 + 工具栏固定，正文区独立滚动 */
-.main:has(.editor-view) { padding-top: 12px; padding-bottom: 14px; }
+.main:has(.editor-view) { padding-top: 0; padding-bottom: 14px; }
 .editor-view {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 26px);
+  height: calc(100vh - 14px);
   min-height: 420px;
 }
 .editor-view .editor-card-title { flex: none; }

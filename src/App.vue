@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar.vue'
 import Breadcrumb from './components/Breadcrumb.vue'
 import Modal from './components/Modal.vue'
 import TagModal from './components/TagModal.vue'
+import TitleBar from './components/TitleBar.vue'
 import ToastHost from './components/ToastHost.vue'
 import HomeView from './views/HomeView.vue'
 import DiaryView from './views/DiaryView.vue'
@@ -48,6 +49,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <TitleBar />
   <div v-if="ready" class="app">
     <Sidebar />
     <main class="main" :class="{ 'main--diary': state.view === 'diary' }">
@@ -63,6 +65,6 @@ onBeforeUnmount(() => {
     </main>
   </div>
   <ToastHost />
-  <Modal />
   <TagModal />
+  <Modal />
 </template>

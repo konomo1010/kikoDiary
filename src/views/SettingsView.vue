@@ -4,6 +4,7 @@ import {
   state, userAvatarChar, load,
   setTheme, setShowListExcerpt, setCheckUpdatesOnStartup,
   setUserName, setUserAvatar, exportData, importData,
+  rescanFromDisk,
   openModal, toast,
   updateState, checkUpdate, promptInstallUpdate
 } from '../store'
@@ -230,6 +231,10 @@ async function cleanEmptyDirs() {
           <button type="button" class="btn-link" @click="resetDataDir">恢复默认</button>
           <span v-if="dataDirSaved" class="saved-tip">已迁移</span>
         </div>
+      </div>
+      <div class="setting-row">
+        <div class="info"><b>重新扫描</b><span>外部工具写入数据目录后，手动同步一次索引</span></div>
+        <button class="btn btn-ghost" @click="rescanFromDisk"><Icon name="refresh" /> 扫描</button>
       </div>
       <div class="setting-row">
         <div class="info"><b>导出数据</b><span>下载全部日记为 JSON 文件</span></div>

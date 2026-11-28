@@ -1,4 +1,5 @@
 mod db;
+mod watcher;
 
 use tauri::Manager;
 use tauri_plugin_log::{Target, TargetKind};
@@ -23,6 +24,8 @@ pub fn run() {
             let handle = app.handle().clone();
             let database = db::Db::open(&handle)?;
             app.manage(database);
+            // 开始监听数据目录：外部写入的日记会自动出现在界面
+            watcher::start(handle.clone());
 
             // dev 缓存放到 target 下：Tauri 的 dev watcher 监视 src-tauri，
             // 缓存文件的读写会触发无限重建；target 目录被 watcher 忽略。
@@ -48,6 +51,7 @@ pub fn run() {
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .title("kiko")
+            .decorations(false)
             .inner_size(1280.0, 860.0)
             .min_inner_size(900.0, 600.0)
             .center()
@@ -62,6 +66,7 @@ pub fn run() {
             db::save_diary,
             db::delete_diary,
             db::search_diaries,
+            db::rescan_diaries,
             db::load_config,
             db::save_config,
             db::get_data_dir,

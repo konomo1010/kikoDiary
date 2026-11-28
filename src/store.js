@@ -441,6 +441,17 @@ async function duplicateDiary(id) {
     const title = d.title && d.title.trim() ? `${d.title} 副本` : '副本'
     const date = todayStr()
     const resolved = await collectImages(content)
+    const copyImages = []
+    const walkImages = (node) => {
+      if (node && node.type === 'image' && node.attrs?.src) {
+        const src = node.attrs.src
+        if (typeof src === 'string' && !/^(blob:|data:|https?:|asset:)/.test(src)) {
+          copyImages.push(src)
+        }
+      }
+      if (node && Array.isArray(node.content)) node.content.forEach(walkImages)
+    }
+    walkImages(resolved.content)
     const result = await dbApi.saveDiary({
       id: 0,
       title,
@@ -451,7 +462,8 @@ async function duplicateDiary(id) {
       wordCount: countWords(resolved.content),
       excerpt: buildExcerpt(resolved.content),
       images: resolved.images,
-      keepImages: resolved.keepImages
+      keepImages: resolved.keepImages,
+      copyImages
     })
     const newId = Array.isArray(result) ? result[0] : result
     const dirName = Array.isArray(result) ? result[1] : ''
@@ -572,7 +584,7 @@ function addTagFromModal(preset) {
       persist()
       toast(`标签「${name}」已添加并选中`, 'success')
       tagModal.open = true
-      return false
+      return true
     }
   })
 }
@@ -998,9 +1010,101 @@ function toast(msg, type = '') {
   }, 2400)
 }
 
+/* ================= 外部数据监听 ================= */
+// 外部脚本 / 同步工具直接往数据目录写日记时，Rust 侧监听 → 增量重建索引 →
+// 广播 kiko:data-changed，这里收到后重新拉 meta 并刷新界面。
+let unlistenDataChanged = null
+
+/** 外部写进来的标签（脚本直接写 meta.json）也要出现在标签列表里 */
+function syncTagsFromMeta(meta) {
+  const known = new Set(state.tags)
+  let added = false
+  for (const d of meta) {
+    for (const t of d.tags || []) {
+      if (isUntaggedTag(t) || known.has(t)) continue
+      known.add(t)
+      state.tags.push(t)
+      added = true
+    }
+  }
+  if (added) {
+    state.tags = withUntaggedTag(state.tags)
+    persist()
+  }
+}
+
+async function refreshDiariesFromDisk() {
+  const meta = await dbApi.loadMeta()
+  if (meta) {
+    state.diaries = meta
+    syncTagsFromMeta(meta)
+  }
+  return state.diaries
+}
+
+async function applyExternalChange(report) {
+  const added = report && Array.isArray(report.added) ? report.added.length : 0
+  const removed = report && Array.isArray(report.removed) ? report.removed : []
+  const changed = report && Array.isArray(report.changed) ? report.changed : []
+  const editingId = state.editingId
+  const editingNow = state.view === 'editor' && editingId != null
+
+  try {
+    await refreshDiariesFromDisk()
+  } catch (e) {
+    console.error('[store] 外部数据刷新失败', e)
+    return
+  }
+
+  // 正在编辑的这一篇不自动覆盖正文，只提示；其余情况列表直接刷新完事
+  if (editingNow && removed.includes(editingId)) {
+    toast('正在编辑的日记已在磁盘上被删除', 'danger')
+    return
+  }
+  if (editingNow && changed.includes(editingId)) {
+    toast('正在编辑的日记已被外部修改，退出后重新打开可看到最新内容', 'danger')
+    return
+  }
+  // 外部脚本同步维护了索引时，扫描没有增量（added 为 0），此时只要静默刷新列表即可
+  if (added > 0) toast(`已读取 ${added} 篇外部写入的日记`, 'success')
+}
+
+/** 手动重新扫描（设置页兜底按钮）：外部工具写完但没触发监听时用 */
+async function rescanFromDisk() {
+  try {
+    const report = (await dbApi.rescanDiaries()) || {}
+    await refreshDiariesFromDisk()
+    const added = Array.isArray(report.added) ? report.added.length : 0
+    const removed = Array.isArray(report.removed) ? report.removed.length : 0
+    if (added || removed) {
+      toast(`已同步：新增 ${added} 篇，移除 ${removed} 篇`, 'success')
+    } else {
+      toast('已重新扫描，没有发现变化', 'success')
+    }
+    return report
+  } catch (e) {
+    console.error('[store] 重新扫描失败', e)
+    toast('扫描失败，请重试', 'danger')
+    return null
+  }
+}
+
+async function startDataWatch() {
+  if (unlistenDataChanged) return
+  try {
+    const { listen } = await import('@tauri-apps/api/event')
+    unlistenDataChanged = await listen('kiko:data-changed', (event) => {
+      applyExternalChange(event && event.payload)
+    })
+  } catch (e) {
+    console.warn('[store] 数据目录监听不可用', e)
+  }
+}
+
 /* ================= Init ================= */
 async function init() {
   await load()
+  await startDataWatch()
   applyTheme()
   document.documentElement.style.fontSize = state.settings.fontSize + 'px'
   showView('home')
@@ -1058,6 +1162,8 @@ export {
   updateState, checkUpdate, installUpdateFlow, promptInstallUpdate,
   applyTheme, editorDark, toggleEditorDark,
   setUserName, setUserAvatar, exportData, importData,
+  // 外部数据
+  rescanFromDisk,
   // modal
   openModal, closeModal, cancelModal, secondaryModal, confirmModal,
   // toast

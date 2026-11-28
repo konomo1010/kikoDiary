@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, State};
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -41,10 +42,108 @@ pub struct SaveDiaryInput {
     pub images: Vec<ImageInput>,
     #[serde(default)]
     pub keep_images: Vec<String>,
+    /// 复制日记时：需要从原目录复制过来的图片绝对路径
+    #[serde(default)]
+    pub copy_images: Vec<String>,
 }
 
 pub struct Db {
     dir: Mutex<PathBuf>,
+    /// 已索引正文文件的修改时间，用来判断「外部改动」
+    stamps: Mutex<HashMap<PathBuf, SystemTime>>,
+    /// 本进程刚写过的文件：短时间内的事件不算外部改动
+    recent: Mutex<HashMap<PathBuf, SystemTime>>,
+    /// meta.json 的指纹（大小 + 修改时间）：外部工具自己维护索引时，靠它发现变化
+    manifest: Mutex<Stamp>,
+    /// 串行化「读索引 → 改文件 → 写索引」，防止监听线程和界面保存互相覆盖
+    io_lock: Mutex<()>,
+}
+
+/// 文件指纹。外部脚本写完 meta.json 后，正文和索引可能都对得上，
+/// 只有「索引文件本身被改过」这一条线索能说明界面需要重新读一次。
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+struct Stamp {
+    len: u64,
+    mtime_nanos: u128,
+}
+
+fn file_stamp(path: &Path) -> Stamp {
+    let Ok(meta) = fs::metadata(path) else {
+        return Stamp::default();
+    };
+    let mtime_nanos = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    Stamp {
+        len: meta.len(),
+        mtime_nanos,
+    }
+}
+
+/// 先写临时文件再改名，避免外部工具在写 meta.json 的半截状态被读到
+fn write_atomic(path: &Path, contents: &str) -> Result<(), String> {
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let tmp = path.with_file_name(format!("{}.tmp", name));
+    fs::write(&tmp, contents).map_err(|e| e.to_string())?;
+    match fs::rename(&tmp, path) {
+        Ok(()) => Ok(()),
+        Err(_) => {
+            // 极少数情况下改名失败（比如被占用），退回直接覆盖，保证不丢数据
+            fs::write(path, contents).map_err(|e| e.to_string())?;
+            let _ = fs::remove_file(&tmp);
+            Ok(())
+        }
+    }
+}
+
+/// 逐层删文件再删目录。
+/// 不用 std 的 remove_dir_all：在带实时防护的 Windows 上它偶尔会卡住不返回。
+fn remove_dir_safe(dir: &Path) -> std::io::Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        if is_dir {
+            remove_dir_safe(&path)?;
+        } else {
+            fs::remove_file(&path)?;
+        }
+    }
+    // 刚清空的目录偶尔还会被判定「不是空的」，短重试几次
+    for _ in 0..5 {
+        match fs::remove_dir(dir) {
+            Ok(()) => return Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::DirectoryNotEmpty => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    fs::remove_dir(dir)
+}
+
+/// 一次目录扫描的结果，会作为事件 payload 发给前端
+#[derive(Serialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanReport {
+    pub added: Vec<u64>,
+    pub removed: Vec<u64>,
+    pub changed: Vec<u64>,
+}
+
+impl ScanReport {
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.removed.is_empty() && self.changed.is_empty()
+    }
 }
 
 fn now_ms() -> u64 {
@@ -127,12 +226,21 @@ impl Db {
         let dir = resolve_data_dir()?;
         fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         fs::create_dir_all(dir.join("diaries")).map_err(|e| e.to_string())?;
-        Ok(Self {
+        let db = Self {
             dir: Mutex::new(dir),
-        })
+            stamps: Mutex::new(HashMap::new()),
+            recent: Mutex::new(HashMap::new()),
+            manifest: Mutex::new(Stamp::default()),
+            io_lock: Mutex::new(()),
+        };
+        // 启动即扫描一次：外部工具直接写进数据目录的日记，开 app 就能看到
+        let _ = db.scan_and_sync();
+        // 记下启动后的索引指纹，之后只把「真正被外部改过」的报给界面
+        db.sync_manifest_stamp();
+        Ok(db)
     }
 
-    fn root(&self) -> PathBuf {
+    pub fn root(&self) -> PathBuf {
         self.dir.lock().unwrap().clone()
     }
 
@@ -180,7 +288,30 @@ impl Db {
 
     fn write_meta(&self, list: &[DiaryMeta]) -> Result<(), String> {
         let json = serde_json::to_string_pretty(list).map_err(|e| e.to_string())?;
-        fs::write(self.meta_path(), json).map_err(|e| e.to_string())
+        write_atomic(&self.meta_path(), &json)?;
+        // 自己的写入立刻记账，避免被当成「外部改动」再刷一次界面
+        self.sync_manifest_stamp();
+        Ok(())
+    }
+
+    fn meta_stamp(&self) -> Stamp {
+        file_stamp(&self.meta_path())
+    }
+
+    fn sync_manifest_stamp(&self) {
+        let stamp = self.meta_stamp();
+        *self.manifest.lock().unwrap() = stamp;
+    }
+
+    /// meta.json 是否被外部改过（调用即更新记账，同一次变化只返回一次 true）
+    pub fn manifest_changed(&self) -> bool {
+        let current = self.meta_stamp();
+        let mut last = self.manifest.lock().unwrap();
+        if *last == current {
+            return false;
+        }
+        *last = current;
+        true
     }
 
     fn read_search(&self) -> HashMap<String, String> {
@@ -190,7 +321,148 @@ impl Db {
 
     fn write_search(&self, map: &HashMap<String, String>) -> Result<(), String> {
         let json = serde_json::to_string(map).map_err(|e| e.to_string())?;
-        fs::write(self.search_path(), json).map_err(|e| e.to_string())
+        write_atomic(&self.search_path(), &json)
+    }
+
+    /// 记一笔「本进程刚写的文件」，用于过滤自己触发的监听事件
+    fn mark_self_write(&self, path: &Path) {
+        self.recent
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), SystemTime::now());
+    }
+
+    fn is_self_write(&self, path: &Path) -> bool {
+        // 6 秒内的自身写入视为自己造成的，避免边打字边重载
+        let mut recent = self.recent.lock().unwrap();
+        let Some(at) = recent.get(path).copied() else {
+            return false;
+        };
+        let fresh = at.elapsed().map(|d| d < Duration::from_secs(6)).unwrap_or(true);
+        if !fresh {
+            recent.remove(path);
+        }
+        fresh
+    }
+
+    /// 扫描 diaries 目录，把「索引里没有 / 多了 / 正文被外面改过」的日记同步进 meta.json + search.json。
+    /// 只做增量：已有条目的标题、标签、id 都不动，避免覆盖界面里编辑过的内容。
+    pub fn scan_and_sync(&self) -> Result<ScanReport, String> {
+        // 与界面保存串行，避免两边的「读索引 → 写索引」互相覆盖
+        let _io = self.io_lock.lock().map_err(|e| e.to_string())?;
+        let root = self.root();
+        let bodies = scan_bodies(&root);
+        let mut report = ScanReport::default();
+        let mut list = self.read_meta();
+        let mut search = self.read_search();
+        let mut dirty = false;
+
+        // 1) 已索引的日记：看正文 mtime，判断是否被外部改写
+        for body in &bodies {
+            let Some(idx) = list
+                .iter()
+                .position(|m| !m.dir_name.is_empty() && m.dir_name == body.dir_name && m.date == body.date)
+            else {
+                continue;
+            };
+            let Ok(mtime) = fs::metadata(&body.path).and_then(|m| m.modified()) else {
+                continue;
+            };
+            let previous = self.stamps.lock().unwrap().insert(body.path.clone(), mtime);
+            if previous.is_none() || previous == Some(mtime) {
+                continue; // 第一次见到，或没变化
+            }
+            if self.is_self_write(&body.path) {
+                continue; // 自己刚保存的，不算外部改动
+            }
+            let Ok(raw) = fs::read_to_string(&body.path) else { continue };
+            let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+            let plain = doc_to_text(&doc);
+            let id = list[idx].id;
+            list[idx].word_count = word_count(&plain);
+            list[idx].excerpt = excerpt(&plain);
+            if list[idx].title.trim().is_empty() {
+                if let Some(t) = first_heading(&doc) {
+                    list[idx].title = t;
+                }
+            }
+            search.insert(id.to_string(), plain);
+            report.changed.push(id);
+            dirty = true;
+        }
+
+        // 2) 目录里有、索引里没有的：新增（标题取正文第一个标题，标签留空）
+        let mut next_id = list.iter().map(|m| m.id).max().unwrap_or(0);
+        for body in &bodies {
+            if list
+                .iter()
+                .any(|m| !m.dir_name.is_empty() && m.dir_name == body.dir_name && m.date == body.date)
+            {
+                continue;
+            }
+            let Ok(raw) = fs::read_to_string(&body.path) else { continue };
+            let Ok(doc) = serde_json::from_str::<serde_json::Value>(&raw) else { continue };
+            let plain = doc_to_text(&doc);
+            next_id += 1;
+            if let Ok(mtime) = fs::metadata(&body.path).and_then(|m| m.modified()) {
+                self.stamps.lock().unwrap().insert(body.path.clone(), mtime);
+            }
+            search.insert(next_id.to_string(), plain.clone());
+            report.added.push(next_id);
+            list.push(DiaryMeta {
+                id: next_id,
+                title: first_heading(&doc).unwrap_or_default(),
+                date: body.date.clone(),
+                tags: Vec::new(),
+                word_count: word_count(&plain),
+                excerpt: excerpt(&plain),
+                dir_name: body.dir_name.clone(),
+            });
+            dirty = true;
+        }
+
+        // 3) 索引里有、目录已经没了的（外部删除）：移除。
+        //    目录还在但正文暂时缺失（外部正在写）时先留着，避免误删。
+        list.retain(|m| {
+            if m.dir_name.is_empty() {
+                return true; // 老数据没有 dirName，不动
+            }
+            if self.diary_dir(&m.date, &m.dir_name).exists() {
+                return true;
+            }
+            report.removed.push(m.id);
+            false
+        });
+        if !report.removed.is_empty() {
+            for id in &report.removed {
+                search.remove(&id.to_string());
+            }
+            dirty = true;
+        }
+
+        if dirty {
+            self.write_meta(&list)?;
+            self.write_search(&search)?;
+        }
+        Ok(report)
+    }
+}
+
+/// 递归收集 content 里的图片绝对路径
+fn collect_image_srcs(node: &serde_json::Value, out: &mut Vec<String>) {
+    if node.get("type").and_then(|t| t.as_str()) == Some("image") {
+        if let Some(src) = node
+            .get("attrs")
+            .and_then(|a| a.get("src"))
+            .and_then(|s| s.as_str())
+        {
+            out.push(src.to_string());
+        }
+    }
+    if let Some(children) = node.get("content").and_then(|c| c.as_array()) {
+        for child in children {
+            collect_image_srcs(child, out);
+        }
     }
 }
 
@@ -236,6 +508,143 @@ fn rebase_image_src(node: &mut serde_json::Value, old_dir: &Path, new_dir: &Path
     }
 }
 
+/// 一条磁盘上真实存在的日记正文
+struct ScannedBody {
+    date: String,
+    dir_name: String,
+    path: PathBuf,
+}
+
+fn is_date_str(s: &str) -> bool {
+    let b = s.as_bytes();
+    s.len() == 10
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && s.chars().filter(|c| c.is_ascii_digit()).count() == 8
+}
+
+/// 扫描 <root>/diaries/YYYY/MM/YYYY-MM-DD/<dirName>/<dirName>.json
+fn scan_bodies(root: &Path) -> Vec<ScannedBody> {
+    let mut out = Vec::new();
+    let base = root.join("diaries");
+    let Ok(years) = fs::read_dir(&base) else { return out };
+    for year in years.flatten() {
+        if !year.path().is_dir() {
+            continue;
+        }
+        let Ok(months) = fs::read_dir(year.path()) else { continue };
+        for month in months.flatten() {
+            if !month.path().is_dir() {
+                continue;
+            }
+            let Ok(days) = fs::read_dir(month.path()) else { continue };
+            for day in days.flatten() {
+                let day_path = day.path();
+                if !day_path.is_dir() {
+                    continue;
+                }
+                let date = day.file_name().to_string_lossy().to_string();
+                if !is_date_str(&date) {
+                    continue;
+                }
+                let Ok(entries) = fs::read_dir(&day_path) else { continue };
+                for entry in entries.flatten() {
+                    let dir_path = entry.path();
+                    if !dir_path.is_dir() {
+                        continue;
+                    }
+                    let dir_name = entry.file_name().to_string_lossy().to_string();
+                    if dir_name.starts_with("imageFiles_") {
+                        continue;
+                    }
+                    let exact = dir_path.join(format!("{}.json", dir_name));
+                    let path = if exact.exists() {
+                        exact
+                    } else {
+                        // 兜底：目录里第一个 json，兼容外部工具用别的文件名
+                        let found = fs::read_dir(&dir_path).ok().and_then(|files| {
+                            files
+                                .flatten()
+                                .map(|f| f.path())
+                                .find(|p| {
+                                    p.is_file()
+                                        && p.extension().and_then(|e| e.to_str()) == Some("json")
+                                })
+                        });
+                        match found {
+                            Some(p) => p,
+                            None => continue,
+                        }
+                    };
+                    out.push(ScannedBody {
+                        date: date.clone(),
+                        dir_name,
+                        path,
+                    });
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 与前端 docToText 保持一致的纯文本：收集各 text 节点，用换行连接
+fn doc_to_text(doc: &serde_json::Value) -> String {
+    fn walk(node: &serde_json::Value, parts: &mut Vec<String>) {
+        if let Some(t) = node.get("text").and_then(|v| v.as_str()) {
+            parts.push(t.to_string());
+            return;
+        }
+        if let Some(arr) = node.get("content").and_then(|v| v.as_array()) {
+            for child in arr {
+                walk(child, parts);
+            }
+        }
+    }
+    let mut parts = Vec::new();
+    walk(doc, &mut parts);
+    parts.join("\n")
+}
+
+/// 与前端 countWords 一致：去掉所有空白后的字符数
+fn word_count(text: &str) -> usize {
+    text.chars().filter(|c| !c.is_whitespace()).count()
+}
+
+/// 正文里第一个标题的文本（① 方案：外部日记的标题来源）
+fn first_heading(doc: &serde_json::Value) -> Option<String> {
+    fn find(node: &serde_json::Value) -> Option<String> {
+        let arr = node.get("content")?.as_array()?;
+        for child in arr {
+            if child.get("type").and_then(|t| t.as_str()) == Some("heading") {
+                let text = doc_to_text(child).replace('\n', " ");
+                let t = text.trim();
+                if !t.is_empty() {
+                    return Some(t.to_string());
+                }
+            }
+        }
+        // 标题也可能被包在引用块 / 列表里
+        for child in arr {
+            if let Some(t) = find(child) {
+                return Some(t);
+            }
+        }
+        None
+    }
+    find(doc)
+}
+
+/// 与前端 buildExcerpt 一致：空白压成空格，截 80 字
+fn excerpt(plain: &str) -> String {
+    let s: String = plain
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect();
+    let t = s.trim();
+    t.chars().take(80).collect()
+}
+
 #[tauri::command]
 pub fn load_meta(state: State<'_, Db>) -> Result<Option<Vec<DiaryMeta>>, String> {
     Ok(state.read_meta_if_initialized())
@@ -257,6 +666,7 @@ pub fn get_body(state: State<'_, Db>, id: u64) -> Result<Option<serde_json::Valu
 
 #[tauri::command]
 pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, String), String> {
+    let _io = state.io_lock.lock().map_err(|e| e.to_string())?;
     let mut list = state.read_meta();
 
     let (new_id, dir_name, old_date) = if diary.id == 0 {
@@ -310,9 +720,66 @@ pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, S
         }
     }
 
-    // 没有图片时删除整个 imageFiles 目录；否则清理不再被引用的旧文件
+    // 复制日记：把原日记目录里的图片文件真正复制到新目录
+    if !diary.copy_images.is_empty() {
+        fs::create_dir_all(&image_dir).map_err(|e| e.to_string())?;
+        for src in &diary.copy_images {
+            let src_path = PathBuf::from(src);
+            if !src_path.is_file() {
+                continue;
+            }
+            let Some(fname) = src_path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+                continue;
+            };
+            let new_name = format!("{}_{}", dir_name, fname);
+            let dest = image_dir.join(&new_name);
+            if fs::copy(&src_path, &dest).is_err() {
+                continue;
+            }
+            replacements.insert(src.clone(), dest.to_string_lossy().to_string());
+            kept.push(new_name);
+        }
+    }
+
+    // 自动复制正文里引用的「外部图片」：粘贴自其他日记、或其他目录的图片，
+    // 保存时复制进当前日记目录，避免删除原日记后图片失效。
+    let mut external_srcs: Vec<String> = Vec::new();
+    collect_image_srcs(&diary.content, &mut external_srcs);
+    for src in external_srcs {
+        if replacements.contains_key(&src) {
+            continue;
+        }
+        let src_path = PathBuf::from(&src);
+        if !src_path.is_file() {
+            continue;
+        }
+        if src_path.starts_with(&diary_dir) {
+            continue;
+        }
+        if let Some(old_dir) = &old_diary_dir {
+            if src_path.starts_with(old_dir) {
+                continue;
+            }
+        }
+        fs::create_dir_all(&image_dir).map_err(|e| e.to_string())?;
+        let Some(fname) = src_path.file_name().map(|n| n.to_string_lossy().to_string()) else {
+            continue;
+        };
+        let mut new_name = format!("{}_{}", dir_name, fname);
+        let mut serial = 1;
+        while image_dir.join(&new_name).exists() {
+            new_name = format!("{}_{}_{}", dir_name, serial, fname);
+            serial += 1;
+        }
+        let dest = image_dir.join(&new_name);
+        if fs::copy(&src_path, &dest).is_err() {
+            continue;
+        }
+        replacements.insert(src, dest.to_string_lossy().to_string());
+        kept.push(new_name);
+    }
     if kept.is_empty() {
-        let _ = fs::remove_dir_all(&image_dir);
+        let _ = remove_dir_safe(&image_dir);
     } else if let Ok(entries) = fs::read_dir(&image_dir) {
         for entry in entries.flatten() {
             let fname = entry.file_name().to_string_lossy().to_string();
@@ -330,8 +797,10 @@ pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, S
     }
 
     let body_json = serde_json::to_string(&content).map_err(|e| e.to_string())?;
-    fs::write(diary_dir.join(format!("{}.json", dir_name)), body_json)
-        .map_err(|e| e.to_string())?;
+    let body_path = diary_dir.join(format!("{}.json", dir_name));
+    fs::write(&body_path, body_json).map_err(|e| e.to_string())?;
+    // 记住这次写入，文件监听到这个文件变化时不算「外部改动」
+    state.mark_self_write(&body_path);
 
     let meta = DiaryMeta {
         id: new_id,
@@ -358,6 +827,7 @@ pub fn save_diary(state: State<'_, Db>, diary: SaveDiaryInput) -> Result<(u64, S
 
 #[tauri::command]
 pub fn delete_diary(state: State<'_, Db>, id: u64) -> Result<(), String> {
+    let _io = state.io_lock.lock().map_err(|e| e.to_string())?;
     let mut list = state.read_meta();
     let found = list
         .iter()
@@ -367,7 +837,7 @@ pub fn delete_diary(state: State<'_, Db>, id: u64) -> Result<(), String> {
     state.write_meta(&list)?;
 
     if let Some((date, dir_name)) = found {
-        let _ = fs::remove_dir_all(state.diary_dir(&date, &dir_name));
+        let _ = remove_dir_safe(&state.diary_dir(&date, &dir_name));
     }
 
     let mut search = state.read_search();
@@ -398,6 +868,12 @@ pub fn search_diaries(state: State<'_, Db>, query: String) -> Result<Vec<u64>, S
         }
     }
     Ok(ids)
+}
+
+/// 手动/开机后强制扫描一次数据目录（前端也能调，用来兜底）
+#[tauri::command]
+pub fn rescan_diaries(state: State<'_, Db>) -> Result<ScanReport, String> {
+    state.scan_and_sync()
 }
 
 #[tauri::command]
@@ -522,7 +998,7 @@ pub fn set_data_dir(
         "overwrite" => {
             // 清理目标数据（失败要报错，不能静默忽略）
             if new_dir.exists() {
-                fs::remove_dir_all(&new_dir)
+                remove_dir_safe(&new_dir)
                     .map_err(|e| format!("清理目标目录失败（文件可能被占用）：{}", e))?;
             }
             fs::create_dir_all(&new_dir).map_err(|e| e.to_string())?;
@@ -544,6 +1020,8 @@ pub fn set_data_dir(
 
     // 立即切换到新目录
     *state.dir.lock().unwrap() = new_dir;
+    // 换了根目录，旧的 mtime 记录全部作废
+    state.stamps.lock().unwrap().clear();
 
     // 写入配置
     let config = serde_json::json!({ "dataDir": new_root.to_string_lossy().to_string() });
@@ -566,7 +1044,7 @@ pub fn remove_data_dir(path: String) -> Result<(), String> {
     if !p.is_dir() {
         return Ok(());
     }
-    fs::remove_dir_all(&p).map_err(|e| format!("清理原数据目录失败（文件可能被占用）：{}", e))
+    remove_dir_safe(&p).map_err(|e| format!("清理原数据目录失败（文件可能被占用）：{}", e))
 }
 
 #[derive(Serialize)]
@@ -689,7 +1167,7 @@ pub fn write_text_file(path: String, content: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{now_ms, rebase_image_src, Db};
+    use super::{now_ms, rebase_image_src, remove_dir_safe, Db, DiaryMeta};
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
@@ -751,6 +1229,10 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         let db = Db {
             dir: Mutex::new(root.clone()),
+            stamps: Mutex::new(std::collections::HashMap::new()),
+            recent: Mutex::new(std::collections::HashMap::new()),
+            manifest: Mutex::new(Default::default()),
+            io_lock: Mutex::new(()),
         };
 
         assert!(db.read_meta_if_initialized().is_none());
@@ -761,6 +1243,181 @@ mod tests {
             .expect("an existing empty meta.json means initialized");
         assert!(meta.is_empty());
 
-        fs::remove_dir_all(root).unwrap();
+        let _ = remove_dir_safe(&root);
+    }
+
+    fn scan_test_root(tag: &str) -> PathBuf {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("target/test-data")
+            .join(format!("kiko-scan-{}-{}-{}", tag, std::process::id(), now_ms()));
+        fs::create_dir_all(root.join("diaries")).unwrap();
+        fs::write(root.join("meta.json"), "[]").unwrap();
+        root
+    }
+
+    fn write_external_diary(root: &PathBuf, date: &str, dir_name: &str, heading: &str) {
+        let parts: Vec<&str> = date.split('-').collect();
+        let body_dir = root
+            .join("diaries")
+            .join(parts[0])
+            .join(parts[1])
+            .join(date)
+            .join(dir_name);
+        fs::create_dir_all(&body_dir).unwrap();
+        let doc = json!({
+            "type": "doc",
+            "content": [
+                { "type": "heading", "attrs": { "level": 1 },
+                  "content": [{ "type": "text", "text": heading }] },
+                { "type": "paragraph",
+                  "content": [{ "type": "text", "text": "第一段正文" }] }
+            ]
+        });
+        fs::write(
+            body_dir.join(format!("{}.json", dir_name)),
+            serde_json::to_string(&doc).unwrap(),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scan_picks_up_external_diary() {
+        let root = scan_test_root("add");
+        write_external_diary(&root, "2026-11-25", "1795000000000", "外部写入的标题");
+        let db = Db {
+            dir: Mutex::new(root.clone()),
+            stamps: Mutex::new(std::collections::HashMap::new()),
+            recent: Mutex::new(std::collections::HashMap::new()),
+            manifest: Mutex::new(Default::default()),
+            io_lock: Mutex::new(()),
+        };
+
+        let report = db.scan_and_sync().unwrap();
+        assert_eq!(report.added.len(), 1, "外部日记应被识别为新增");
+        let list = db.read_meta();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].title, "外部写入的标题", "标题取正文第一个标题");
+        assert_eq!(list[0].date, "2026-11-25");
+        assert_eq!(list[0].dir_name, "1795000000000");
+        assert!(list[0].tags.is_empty(), "外部日记标签留空");
+        assert_eq!(
+            list[0].word_count,
+            "外部写入的标题第一段正文".chars().count(),
+            "字数与前端 countWords 口径一致"
+        );
+        assert!(db.read_search().contains_key(&list[0].id.to_string()));
+
+        // 再扫一次不该重复新增
+        let again = db.scan_and_sync().unwrap();
+        assert!(again.is_empty());
+        assert_eq!(db.read_meta().len(), 1);
+
+        let _ = remove_dir_safe(&root);
+    }
+
+    #[test]
+    fn scan_drops_index_entry_whose_dir_is_gone() {
+        let root = scan_test_root("remove");
+        let db = Db {
+            dir: Mutex::new(root.clone()),
+            stamps: Mutex::new(std::collections::HashMap::new()),
+            recent: Mutex::new(std::collections::HashMap::new()),
+            manifest: Mutex::new(Default::default()),
+            io_lock: Mutex::new(()),
+        };
+        // 索引里有一条，但磁盘上对应目录已经不存在（外部删除）
+        db.write_meta(&[DiaryMeta {
+            id: 7,
+            title: "外面删掉的日记".into(),
+            date: "2026-11-25".into(),
+            tags: vec![],
+            word_count: 6,
+            excerpt: "外面删掉的日记".into(),
+            dir_name: "1795000000000".into(),
+        }])
+        .unwrap();
+
+        let report = db.scan_and_sync().unwrap();
+        assert_eq!(report.removed, vec![7], "外部删除的日记应从索引移除");
+        assert!(db.read_meta().is_empty());
+        assert!(db.read_search().is_empty() || !db.read_search().contains_key("7"));
+
+        let _ = remove_dir_safe(&root);
+    }
+
+    #[test]
+    fn scan_ignores_own_write() {
+        let root = scan_test_root("selfwrite");
+        write_external_diary(&root, "2026-11-25", "1795000000000", "标题");
+        let db = Db {
+            dir: Mutex::new(root.clone()),
+            stamps: Mutex::new(std::collections::HashMap::new()),
+            recent: Mutex::new(std::collections::HashMap::new()),
+            manifest: Mutex::new(Default::default()),
+            io_lock: Mutex::new(()),
+        };
+        db.scan_and_sync().unwrap();
+
+        // 模拟界面里保存：正文改动 + 标记为「自己写的」
+        let body = root
+            .join("diaries")
+            .join("2026")
+            .join("11")
+            .join("2026-11-25")
+            .join("1795000000000")
+            .join("1795000000000.json");
+        let doc = json!({
+            "type": "doc",
+            "content": [{ "type": "paragraph",
+                          "content": [{ "type": "text", "text": "自己保存的新内容" }] }]
+        });
+        fs::write(&body, serde_json::to_string(&doc).unwrap()).unwrap();
+        db.mark_self_write(&body);
+
+        let report = db.scan_and_sync().unwrap();
+        assert!(report.changed.is_empty(), "自己保存的改动不该当成外部修改上报");
+
+        let _ = remove_dir_safe(&root);
+    }
+
+    #[test]
+    fn manifest_change_is_reported_when_external_writer_updates_meta() {
+        let root = scan_test_root("manifest");
+        write_external_diary(&root, "2026-11-24", "1794900000000", "已有日记");
+        let db = Db {
+            dir: Mutex::new(root.clone()),
+            stamps: Mutex::new(std::collections::HashMap::new()),
+            recent: Mutex::new(std::collections::HashMap::new()),
+            manifest: Mutex::new(Default::default()),
+            io_lock: Mutex::new(()),
+        };
+        db.scan_and_sync().unwrap();
+        assert!(!db.manifest_changed(), "自己扫完写下的索引不算外部改动");
+
+        // 外部脚本（kiko_add_entry.py）的写法：正文和 meta.json 一起写
+        write_external_diary(&root, "2026-11-26", "1795656600000", "外部新增");
+        let mut list = db.read_meta();
+        list.push(DiaryMeta {
+            id: 99,
+            title: "3476.88 0.01% / 65, 5 / 1766, 3642 / 13173亿(-4.75%,-657亿) / 5".into(),
+            date: "2026-11-26".into(),
+            tags: vec!["短线".into()],
+            word_count: 4,
+            excerpt: "外部新增".into(),
+            dir_name: "1795656600000".into(),
+        });
+        fs::write(
+            root.join("meta.json"),
+            serde_json::to_string_pretty(&list).unwrap(),
+        )
+        .unwrap();
+
+        // 索引里已经有这条 → 增量扫描看不到新增，只能靠索引指纹发现
+        let report = db.scan_and_sync().unwrap();
+        assert!(report.is_empty(), "外部脚本已同步维护索引，增量扫描为空");
+        assert!(db.manifest_changed(), "索引文件被外部改写必须上报给界面");
+        assert!(!db.manifest_changed(), "同一次改动只上报一次");
+
+        let _ = remove_dir_safe(&root);
     }
 }
